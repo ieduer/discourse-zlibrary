@@ -1,0 +1,41 @@
+zh_CN:
+  theme_metadata:
+    description: 在论坛内检索、选择版本并下载图书。
+    settings:
+      book_service_path: 书库服务在论坛域名下的路径。留空时隐藏书库按钮。
+  zlibrary:
+    title: 书库
+    query: 书名、作者或 ISBN
+    format: 文件格式
+    any_format: 全部格式
+    search: 搜索
+    searching: 正在搜索…
+    downloading: 正在下载所选版本…
+    results: "“%{query}”的搜索结果"
+    no_results: 这一页没有找到符合条件的版本。
+    download: 下载所选版本
+    pages: 搜索结果分页
+    previous: 上一页
+    next: 下一页
+    page_of: 第 %{page} 页，共 %{total} 页
+    page: 第 %{page} 页
+    download_sent: 已开始保存《%{title}》。
+    search_error: 搜索未完成，请再试一次。
+    download_error: 未能保存文件，请确认论坛登录状态后再试。
+    hub_limit: 这个文件超过 iOS 版 Discourse Hub 的 25 MiB 下载上限，请用浏览器打开论坛下载。
+    file_limit: 这个文件超过论坛设置的 %{limit} MiB 下载上限。
+    errors:
+      configuration: 论坛尚未配置书库账号，请联系管理员。
+      account: 上游未接受论坛的书库账号，请联系管理员。
+      verification: 书库服务要求额外验证或返回了登录页，请联系管理员。
+      upstream: 书库服务暂时无法完成本次请求。
+      timeout: 书库服务响应超时，请稍后再试。
+      unavailable: 这个版本目前无法下载。
+      quota: 共用账号的下载额度已用尽，请在额度恢复后再试。
+      rate_limited: 书库服务正在限制请求频率，请稍后再试。
+      too_large: 这个文件超过 %{limit} MiB 的下载上限。
+      incomplete: 文件传输不完整，请稍后再试。
+      selection: 本次选择已过期或属于其他成员，请重新搜索并选择版本。
+      query: 搜索词应为 1 至 200 个字符，请确认格式和页码也有效。
+      membership: 请登录论坛后再试。
+      file_host: 书库服务尚未配置这个文件域名。

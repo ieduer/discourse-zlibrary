@@ -1,10 +1,10 @@
-name: Discourse integration
+name: Discourse theme and book service
 on:
   push:
     branches: [main]
-    paths: ["plugin.rb", "app/**", "assets/**", "config/**", "lib/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
+    paths: ["about.json", "settings.yml", "javascripts/**", "common/**", "locales/**", "service/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
   pull_request:
-    paths: ["plugin.rb", "app/**", "assets/**", "config/**", "lib/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
+    paths: ["about.json", "settings.yml", "javascripts/**", "common/**", "locales/**", "service/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,6 @@ jobs:
       EMBER_ENV: development
       PGUSER: discourse
       PGPASSWORD: discourse
-      LOAD_PLUGINS: "1"
       PLAYWRIGHT_BROWSERS_PATH: /home/discourse/.cache/ms-playwright
       CAPYBARA_DEFAULT_MAX_WAIT_TIME: "20"
     steps:
@@ -37,10 +36,10 @@ jobs:
           repository: discourse/discourse
           ref: fb51a71e2e1422fd0cf7e59c5cbbaf60f719e1f9
           persist-credentials: false
-      - name: Install the candidate plugin
+      - name: Check out the remote theme component
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          path: plugins/discourse-zlibrary
+          path: themes/discourse-zlibrary
           persist-credentials: false
       - name: Prepare Discourse
         run: |
@@ -55,11 +54,10 @@ jobs:
           bundle check || bundle install --jobs 4 --retry 1
           pnpm install --frozen-lockfile
           bin/rake db:create db:migrate
-      - name: Run the protocol and request tests
+      - name: Test the book service
         run: |
-          bundle exec ruby plugins/discourse-zlibrary/test/client_test.rb
+          node --test themes/discourse-zlibrary/test/worker.test.mjs
           bin/rake assets:precompile:asset_processor assets:precompile:pretty_text
-          bundle exec rspec plugins/discourse-zlibrary/spec/requests
       - name: Build the forum UI and test the browser download
         run: |
           pnpm playwright-install
@@ -67,4 +65,4 @@ jobs:
           pnpm deploy --filter @discourse/playwright-runner --prod tmp/playwright
           export PLAYWRIGHT_CLI_EXECUTABLE_PATH="$PWD/tmp/playwright/node_modules/.bin/playwright"
           export NODE_PATH="$PWD/tmp/playwright/node_modules"
-          bundle exec rspec plugins/discourse-zlibrary/spec/system
+          bundle exec rspec themes/discourse-zlibrary/spec/system

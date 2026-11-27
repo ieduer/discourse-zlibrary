@@ -1,6 +1,9 @@
 .env
 .env.*
-account.json
+.dev.vars
+.dev.vars.*
+.wrangler/
+node_modules/
 tmp/
 log/
 .DS_Store

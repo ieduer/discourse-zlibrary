@@ -1,0 +1,7 @@
+{
+  "name": "Forum Book Library",
+  "component": true,
+  "authors": "suen",
+  "about_url": "https://github.com/ieduer/discourse-zlibrary",
+  "theme_version": "2.0.0"
+}
