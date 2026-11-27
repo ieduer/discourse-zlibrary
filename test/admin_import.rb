@@ -29,7 +29,9 @@ if client.response.status == 422 && client.response.body.include?("timed out")
   transport = "verified public Git checkout mirror after runner timeout"
 end
 raise "Admin import returned #{client.response.status}: #{client.response.body[0, 220]}" unless client.response.status == 201
-remote = RemoteTheme.find_by!(local_version: expected)
-raise "Import did not retain the public Git repository" unless remote.remote_url.delete_suffix(".git") == remote_url.delete_suffix(".git")
-raise "Import did not create a theme component" unless remote.theme.component?
-puts "Admin imported #{remote.theme.name} at #{remote.local_version} using #{transport}"
+theme = client.response.parsed_body.fetch("theme")
+remote = theme.fetch("remote_theme")
+raise "Imported revision differs from the public checkout" unless remote.fetch("local_version") == expected
+raise "Import did not retain the public Git repository" unless remote.fetch("remote_url").delete_suffix(".git") == remote_url.delete_suffix(".git")
+raise "Import did not create a theme component" unless theme.fetch("component")
+puts "Admin imported #{theme.fetch('name')} at #{remote.fetch('local_version')} using #{transport}"

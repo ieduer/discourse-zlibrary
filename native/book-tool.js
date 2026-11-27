@@ -217,11 +217,15 @@ function invoke() {
         break;
       }
     }
-    if (
+    const privateLink =
       /remix[_-]user(?:id|key)|(?:[?&])(?:password|email|authorization|cookie)=/i.test(inspect) ||
-      [url, inspect].some((v) => v.indexOf(session.key) >= 0 || v.indexOf(cfg.email) >= 0)
-    )
-      fail("verification");
+      [url, inspect].some((value) =>
+        [session.key, cfg.email, cfg.password].some((secret) => value.includes(secret)),
+      );
+    function providerLink(filename) {
+      if (privateLink) fail("verification");
+      return { download_url: url, filename, delivery: "provider" };
+    }
     const filename =
       (book.title
         .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
@@ -230,11 +234,10 @@ function invoke() {
       "." +
       (book.extension || "bin");
     // Provider-issued CDN URLs are downloaded by the member. The shared session stays in Discourse.
-    if (origin !== cfg.origin) return { download_url: url, filename, delivery: "provider" };
+    if (origin !== cfg.origin) return providerLink(filename);
     // Authenticated, same-origin files can be delivered as ordinary private-message attachments.
-    // Only known sizes up to 8 MiB are read into the Discourse tool runtime.
-    if (!book.bytes || book.bytes > 8 * 1024 * 1024)
-      return { download_url: url, filename, delivery: "provider" };
+    // The Discourse tool has a 10 MB JavaScript heap. Leave headroom for Base64 and the upload bridge.
+    if (!book.bytes || book.bytes > 2 * 1024 * 1024) return providerLink(filename);
     const file = http.get(url, {
       headers: {
         Cookie: session.cookie,
@@ -243,20 +246,33 @@ function invoke() {
       },
       base64Encode: true,
     });
-    if (file && [301, 302, 303, 307, 308].includes(file.status))
-      return { download_url: url, filename, delivery: "provider" };
+    if (file && [301, 302, 303, 307, 308].includes(file.status)) return providerLink(filename);
     if (!file || ![200, 206].includes(file.status) || typeof file.body !== "string")
       fail("unavailable");
     if (
-      !/^[A-Za-z0-9+/]+={0,2}$/.test(file.body) ||
       file.body.length !== Math.ceil(book.bytes / 3) * 4 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(file.body) ||
       (file.body.length * 3) / 4 -
         (file.body.endsWith("==") ? 2 : file.body.endsWith("=") ? 1 : 0) !==
         book.bytes
     )
       fail("incomplete");
-    if (/^\s*(?:<!doctype\s+html|<html)/i.test(crypto.base64Decode(file.body.slice(0, 128))))
-      fail("verification");
+    // Decode only ASCII header bytes. A binary PDF or ZIP prefix is not a UTF-8 string.
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let prefix = "",
+      bits = 0,
+      carry = 0;
+    for (const char of file.body.slice(0, 128)) {
+      const digit = alphabet.indexOf(char);
+      if (digit < 0) break;
+      carry = (carry << 6) | digit;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        prefix += String.fromCharCode((carry >> bits) & 255);
+      }
+    }
+    if (/^(?:\xEF\xBB\xBF)?\s*(?:<!doctype\s+html|<html)/i.test(prefix)) fail("verification");
     const attachment = upload.create(filename, file.body);
     const short =
       attachment &&

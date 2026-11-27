@@ -20,7 +20,7 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     tool = AiTool.create!(definition.merge("enabled" => true, "created_by_id" => Discourse.system_user.id))
     secret = Fabricate(:ai_secret, secret: JSON.generate(origin: "https://books.example", email: "fixture@example.invalid", password: "fixture-only"))
     tool.replace_secret_bindings!([{ alias: "book_account", ai_secret_id: secret.id }])
-    auto = DiscourseAutomation::Automation.create!(name: "Book library", script: "ai_tool_action", trigger: "post_created_edited", enabled: false)
+    auto = DiscourseAutomation::Automation.create!(name: "Book library", script: "ai_tool_action", trigger: "post_created_edited", last_updated_by_id: Discourse.system_user.id, enabled: false)
     auto.upsert_field!("tool", "choices", { value: tool.id }, target: "script")
     auto.upsert_field!("action_type", "choices", { value: "created" }, target: "trigger")
     auto.upsert_field!("restricted_archetype", "choices", { value: "private_message" }, target: "trigger")

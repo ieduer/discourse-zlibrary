@@ -191,3 +191,12 @@ test("never publishes a credential in a file URL or copies an unknown or oversiz
     assert.equal(s.uploads.length, 0);
   }
 });
+
+test("downloads a small protected same-origin file without publishing its account-bearing URL", () => {
+  const s = site();
+  s.state.link = "/file/sample?remix_userkey=fixture-long-account-session-key";
+  const key = s.search().books[1].selection;
+  const delivered = s.run("download", { selection: key });
+  assert.equal(delivered.delivery, "forum");
+  assert.doesNotMatch(JSON.stringify(delivered), /remix|fixture-long/);
+});
