@@ -2,8 +2,8 @@
   "ai_tool": {
     "name": "Forum Book Library",
     "tool_name": "forum_book_library",
-    "summary": "Search and download a selected edition for a private forum request.",
-    "description": "Handles requests from the dedicated Discourse Automation group inbox.",
+    "summary": "Search for editions in forum topics and prepare the edition a member selects.",
+    "description": "Responds to book-bot mentions in public topics and handles selection, download and EPUB requests in the dedicated group inbox.",
     "parameters": [],
     "secret_contracts": [
       {
