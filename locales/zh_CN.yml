@@ -2,7 +2,7 @@ zh_CN:
   theme_metadata:
     description: 在论坛内检索、选择版本并下载图书。
     settings:
-      book_service_path: 书库服务在论坛域名下的路径。留空时隐藏书库按钮。
+      book_inbox_group: 用于接收书库私信的论坛群组名称。完成后台自动化设置后填写。
   zlibrary:
     title: 书库
     query: 书名、作者或 ISBN
@@ -19,11 +19,8 @@ zh_CN:
     next: 下一页
     page_of: 第 %{page} 页，共 %{total} 页
     page: 第 %{page} 页
-    download_sent: 已开始保存《%{title}》。
     search_error: 搜索未完成，请再试一次。
     download_error: 未能保存文件，请确认论坛登录状态后再试。
-    hub_limit: 这个文件超过 iOS 版 Discourse Hub 的 25 MiB 下载上限，请用浏览器打开论坛下载。
-    file_limit: 这个文件超过论坛设置的 %{limit} MiB 下载上限。
     errors:
       configuration: 论坛尚未配置书库账号，请联系管理员。
       account: 上游未接受论坛的书库账号，请联系管理员。
@@ -39,3 +36,7 @@ zh_CN:
       query: 搜索词应为 1 至 200 个字符，请确认格式和页码也有效。
       membership: 请登录论坛后再试。
       file_host: 书库服务尚未配置这个文件域名。
+      pending: 论坛尚未回复，请在个人消息中查看此次请求。
+      attachment: 论坛无法为这种文件类型或大小建立附件。
+    pm_title: 书库请求
+    prepare: 准备下载

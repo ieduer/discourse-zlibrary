@@ -1,10 +1,10 @@
-name: Discourse theme and book service
+name: Forum-admin book library
 on:
   push:
     branches: [main]
-    paths: ["about.json", "settings.yml", "javascripts/**", "common/**", "locales/**", "service/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
+    paths: ["about.json", "settings.yml", "javascripts/**", "common/**", "locales/**", "native/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
   pull_request:
-    paths: ["about.json", "settings.yml", "javascripts/**", "common/**", "locales/**", "service/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
+    paths: ["about.json", "settings.yml", "javascripts/**", "common/**", "locales/**", "native/**", "spec/**", "test/**", ".github/workflows/discourse.yml"]
   workflow_dispatch:
 
 permissions:
@@ -22,6 +22,7 @@ jobs:
       run:
         shell: bash
     env:
+      LOAD_PLUGINS: "1"
       RAILS_ENV: test
       EMBER_ENV: development
       PGUSER: discourse
@@ -54,10 +55,11 @@ jobs:
           bundle check || bundle install --jobs 4 --retry 1
           pnpm install --frozen-lockfile
           bin/rake db:create db:migrate
-      - name: Test the book service
+      - name: Test the native Discourse tool
         id: protocol
         run: |
-          node --test themes/discourse-zlibrary/test/worker.test.mjs
+          node themes/discourse-zlibrary/native/pack.mjs --check
+          node --test themes/discourse-zlibrary/test/native.test.mjs
           bin/rake assets:precompile:asset_processor assets:precompile:pretty_text
       - name: Import the public Git URL through the Discourse admin API
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

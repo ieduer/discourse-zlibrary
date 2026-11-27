@@ -4,15 +4,26 @@ import { fn } from "@ember/helper";
 import { on } from "@ember/modifier";
 import { action } from "@ember/object";
 import DModal from "discourse/ui-kit/d-modal";
-import { deliverBlobDownload, MAX_BRIDGED_DOWNLOAD_BYTES } from "discourse/lib/download-blob";
-import { attachmentDownloadStrategy } from "discourse/lib/download-strategy";
+import { ajax } from "discourse/lib/ajax";
+import { extractError } from "discourse/lib/ajax-error";
+import getURL from "discourse/lib/get-url";
 import { eq, not, or } from "discourse/truth-helpers";
 import { i18n } from "discourse-i18n";
 
 const t = (key, options) => i18n(themePrefix(`zlibrary.${key}`), options);
-const knownErrors = new Set(["configuration", "account", "verification", "upstream", "timeout", "unavailable", "quota", "rate_limited", "too_large", "incomplete", "selection", "query", "membership", "file_host"]);
+const knownErrors = new Set(["configuration", "account", "verification", "upstream", "unavailable", "quota", "rate_limited", "incomplete", "selection", "query", "attachment", "pending"]);
+
+function replyPayload(post) {
+  if (post.user_id !== -1) return null;
+  const doc = new DOMParser().parseFromString(post.cooked || "", "text/html");
+  const code = doc.querySelector("pre code");
+  if (!code) return null;
+  try { return JSON.parse(code.textContent); } catch { return null; }
+}
 
 export default class BookLibrary extends Component {
+  topicId = null;
+  @tracked readyFile = null;
   formats = ["epub", "pdf", "mobi", "azw3", "djvu", "fb2", "txt"];
   @tracked result = null;
   @tracked selected = null;
@@ -21,21 +32,37 @@ export default class BookLibrary extends Component {
   @tracked error = "";
   @tracked notice = "";
 
-  async request(operation, data) {
-    const response = await fetch(`${this.args.model.path}/${operation}`, {
-      method: "POST",
-      credentials: "same-origin",
-      redirect: "error",
-      cache: "no-store",
-      headers: { "Content-Type": "application/json", "X-Zlibrary-Request": "1" },
-      body: JSON.stringify(data),
-    });
-    if (response.ok) {
-      return response;
+  async request(operation, fields) {
+    const nonce = crypto.randomUUID();
+    const raw = "book-library-request-v1\n" + JSON.stringify({ op: operation, nonce, ...fields });
+    const target = this.topicId
+      ? { topic_id: this.topicId }
+      : { archetype: "private_message", target_recipients: this.args.model.group,
+          title: t("pm_title") + " " + nonce.slice(0, 13) };
+    const created = await ajax("/posts.json", { type: "POST", data: { ...target, raw } });
+    const sent = created.post || created;
+    if (!sent.topic_id || !sent.post_number) throw new Error(t("errors.pending"));
+    this.topicId = sent.topic_id;
+    const deadline = Date.now() + 90000;
+    let delay = 600;
+    while (Date.now() < deadline && !this.isDestroying && !this.isDestroyed) {
+      const page = await ajax(`/t/${sent.topic_id}/posts.json`, {
+        data: { post_number: sent.post_number, include_raw: false },
+      });
+      for (const post of page.post_stream?.posts || []) {
+        if (post.reply_to_post_number !== sent.post_number) continue;
+        const packet = replyPayload(post);
+        if (packet?.marker !== "book-library-result-v1" || packet.nonce !== nonce) continue;
+        if (packet.result?.error) {
+          const key = knownErrors.has(packet.result.error) ? packet.result.error : "upstream";
+          throw new Error(t("errors." + key));
+        }
+        return packet.result;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, delay));
+      delay = Math.min(delay + 600, 4000);
     }
-    const problem = await response.json().catch(() => null);
-    const key = knownErrors.has(problem?.error) ? problem.error : "configuration";
-    throw new Error(t(`errors.${key}`, { limit: problem?.limit ?? 128 }));
+    throw new Error(t("errors.pending"));
   }
 
   @action
@@ -60,21 +87,18 @@ export default class BookLibrary extends Component {
   async loadPage(filters, page) {
     this.busy = "search";
     this.selected = null;
+    this.readyFile = null;
     this.notice = "";
     this.error = "";
     try {
-      const response = await this.request("search", { ...filters, page });
-      if (!response.headers.get("Content-Type")?.includes("application/json")) {
-        throw new Error(t("errors.configuration"));
-      }
-      const result = await response.json();
+      const result = await this.request("search", { ...filters, page });
       if (!Array.isArray(result.books)) {
         throw new Error(t("errors.upstream"));
       }
       this.submitted = filters;
       this.result = result;
     } catch (error) {
-      this.error = error instanceof TypeError ? t("search_error") : error.message;
+      this.error = error instanceof Error ? error.message : extractError(error, t("search_error"));
     } finally {
       this.busy = null;
     }
@@ -83,6 +107,7 @@ export default class BookLibrary extends Component {
   @action
   choose(book) {
     this.selected = book;
+    this.readyFile = null;
     this.error = "";
     this.notice = "";
   }
@@ -93,26 +118,19 @@ export default class BookLibrary extends Component {
       return;
     }
     const book = this.selected;
-    const hub = attachmentDownloadStrategy() === "bridge";
-    if (hub && book.bytes > MAX_BRIDGED_DOWNLOAD_BYTES) {
-      this.error = t("hub_limit");
-      return;
-    }
     this.busy = "download";
     this.error = "";
     this.notice = "";
     try {
-      const response = await this.request("download", { selection: book.selection, hub });
-      const disposition = response.headers.get("Content-Disposition");
-      if (!disposition?.toLowerCase().startsWith("attachment;")) {
-        throw new Error(t("errors.configuration"));
+      const file = await this.request("download", { selection: book.selection });
+      const local = file.delivery === "forum" && /^\/uploads\/short-url\/[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(file.download_url);
+      const url = new URL(local ? getURL(file.download_url) : file.download_url, window.location.origin);
+      if ((!local && (file.delivery !== "provider" || url.protocol !== "https:")) || url.username || url.password) {
+        throw new Error(t("download_error"));
       }
-      await deliverBlobDownload(await response.blob(), {
-        contentDisposition: disposition, fallbackFilename: book.title,
-      });
-      this.notice = t("download_sent", { title: book.title });
+      this.readyFile = { url: url.href, filename: file.filename };
     } catch (error) {
-      this.error = error instanceof TypeError ? t("download_error") : error.message;
+      this.error = error instanceof Error ? error.message : extractError(error, t("download_error"));
     } finally {
       this.busy = null;
     }
@@ -178,7 +196,10 @@ export default class BookLibrary extends Component {
                       type="button"
                       disabled={{this.busy}}
                       {{on "click" this.download}}
-                    >{{t "download"}}</button>
+                    >{{t "prepare"}}</button>
+                    {{#if this.readyFile}}
+                      <a class="btn btn-primary zlibrary-save" href={{this.readyFile.url}} download={{this.readyFile.filename}} rel="noreferrer" referrerpolicy="no-referrer">{{t "download"}}</a>
+                    {{/if}}
                     <span role="status">
                       {{#if (eq this.busy "download")}}{{t "downloading"}}{{/if}}
                       {{this.notice}}

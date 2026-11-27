@@ -2,7 +2,7 @@ zh_TW:
   theme_metadata:
     description: 在論壇內檢索、選擇版本並下載圖書。
     settings:
-      book_service_path: 書庫服務在論壇網域下的路徑。留空時隱藏書庫按鈕。
+      book_inbox_group: 接收書庫私訊的論壇群組名稱。完成後台自動化設定後填寫。
   zlibrary:
     title: 書庫
     query: 書名、作者或 ISBN
@@ -19,11 +19,8 @@ zh_TW:
     next: 下一頁
     page_of: 第 %{page} 頁，共 %{total} 頁
     page: 第 %{page} 頁
-    download_sent: 已開啟《%{title}》的儲存流程。
     search_error: 搜尋未完成，請再試一次。
     download_error: 檔案未能儲存，請確認論壇登入狀態後再試。
-    hub_limit: 這個檔案超過 iOS 版 Discourse Hub 的 25 MiB 下載上限，請用瀏覽器開啟論壇下載。
-    file_limit: 這個檔案超過論壇設定的 %{limit} MiB 下載上限。
     errors:
       configuration: 論壇尚未設定書庫帳號，請聯絡管理員。
       account: 上游未接受論壇的書庫帳號，請聯絡管理員。
@@ -39,3 +36,7 @@ zh_TW:
       query: 搜尋詞須為 1 至 200 個字元，請確認格式和頁碼也有效。
       membership: 請登入論壇後再試。
       file_host: 書庫服務尚未設定這個檔案網域。
+      pending: 論壇尚未回覆，請在個人訊息中查看此次請求。
+      attachment: 論壇無法為這個檔案類型或大小建立附件。
+    pm_title: 書庫請求
+    prepare: 準備下載

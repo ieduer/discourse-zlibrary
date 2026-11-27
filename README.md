@@ -1,39 +1,27 @@
 # Discourse 書庫
 
-從論壇後台匯入此 GitHub 倉庫，即可將書庫掛到現有主題。會員點頁首的書本按鈕，按書名、作者或 ISBN 搜尋，依格式篩選及翻頁，選定其中一個版本後下載。元件及書庫服務可獨立更新，安裝元件後重新整理頁面即可。
+會員點論壇頁首的書本按鈕，輸入書名、作者或 ISBN，按格式篩選、翻頁、選擇版本，再下載該版本。論壇後台匯入 Git 主題元件，內建的 Discourse AI 自訂工具與 Automation 在同一論壇代會員處理請求。帳密存於論壇後台的 AI 憑證。執行書庫工具時，語言模型欄位留空。
 
-## 在論壇後台安裝
+## 在論壇管理後台安裝
 
-1. 進入 **管理 → 外觀 → 主題與元件 → 元件 → 安裝 → 從 Git 倉庫**。舊版的入口在 **管理 → 自訂 → 主題**。
-2. 貼上 `https://github.com/ieduer/discourse-zlibrary`，安裝 **Forum Book Library**，在元件頁勾選使用中的主題。也可以先安裝，稍後再啟用。
-3. 下方的書庫服務就緒後，在元件設定把 `book_service_path` 填成 `/z-library-api`，儲存並重新整理。留空會隱藏入口。論壇帳號登入後才會顯示書本按鈕。
+1. 到 **外觀 → 主題與元件 → 元件 → 安裝 → 從 Git 倉庫**，貼上 `https://github.com/ieduer/discourse-zlibrary`，安裝 **Forum Book Library** 並掛到使用中的主題。入口名稱隨介面語言略有不同。[參考元件](https://github.com/ieduer/discourse-bilibili-inline-player)
+2. 在後台確認 **Discourse AI** 與 **Automation** 已啟用。建立專用論壇群組 `zlibrary`，在群組的訊息權限允許預期會員發送私訊。群組成員可以閱讀寄到該群組的私訊，因此一般讀者只需發信權限。
+3. 在 **AI → Credentials（憑證）** 新增一個憑證，將下列三項作為單一 JSON 值填入。帳號用電子郵件，來源填能登入 EAPI 的服務網域。
+   ```json
+   {"origin":"https://your-book-service.example","email":"your-account@example.org","password":"your-password"}
+   ```
+4. 在 **AI → Tools（工具）→ Import** 匯入 [forum-book-tool.json](https://raw.githubusercontent.com/ieduer/discourse-zlibrary/main/native/forum-book-tool.json)。在工具的憑證綁定中，將 `book_account` 選為上一步建立的憑證並儲存。這份匯入檔只含工具程式；站方帳密僅填在憑證欄位。
+5. 到 **Automation → 新增**，腳本選 **AI Tool Action**，工具選 **Forum Book Library**，模型留空。觸發器選 **Post created/edited**，動作選 **Created**，主題類型選 **Personal messages**，**Restricted inbox groups** 選 `zlibrary`。儲存並啟用這項自動化。
+6. 回到主題元件設定，將 `book_inbox_group` 設為 `zlibrary`，儲存並重新整理頁面。留空時會隱藏書庫。需要關閉時也可從使用中的主題移除元件。
 
-安裝方式與 [Bilibili 播放器元件](https://github.com/ieduer/discourse-bilibili-inline-player) 相同。[Discourse 官方主題元件安裝文件](https://meta.discourse.org/t/installing-a-theme-or-theme-component/63682)
+## 下載方式
 
-## 設定共用帳號
+搜尋與選版在論壇視窗內完成。每次開啟視窗，第一次搜尋會寄一封私訊到書庫群組，後續翻頁及下載沿用這封對話。查詢及結果留在該私訊，系統回覆只會送回發出請求的主題。自訂工具會在伺服器登入書庫。會員按「準備下載」才會向上游取得下載連結，隨後點「下載」儲存檔案。
 
-主題元件會送到會員的瀏覽器。共用書庫帳密只放在此倉庫 `service/` 的獨立 Cloudflare Worker。已部署服務的論壇只需完成上面的主題元件安裝。
+上游提供獨立下載網域時，瀏覽器直接開啟供應方給該版本的 HTTPS 連結。若要用共用帳號讀取同網域的檔案，已知大小且不超過 8 MiB 的版本可轉成論壇私訊附件，格式與存取權沿用論壇的上傳設定。更大、大小不詳或上游轉址的檔案會使用服務方提供的連結；若該連結還要求讀者個別登入，瀏覽器將要求登入。論壇沒有接收書庫原始帳密的前端欄位。
 
-1. 在管理論壇網域的 Cloudflare 帳戶建立書庫 Worker。下列連結會從公開倉庫的 `service/` 目錄建立服務。[從 Cloudflare 部署書庫服務](https://deploy.workers.cloudflare.com/?url=https://github.com/ieduer/discourse-zlibrary/tree/main/service)
-2. 在 Worker 的 **Settings → Variables and Secrets** 填寫下表。新增服務、設定路由和更新秘密都在 Cloudflare 完成。
-3. 在 **Settings → Domains & Routes → Add → Route** 只掛上書庫的路徑。若論壇位於 `forum.example.org`，區域選 `example.org`，路由填 `forum.example.org/z-library-api/*`。網域需使用 Cloudflare 代理。會員驗證沿用該網域現有的 Discourse 登入。
-4. 回到論壇完成安裝步驟 3。用一般會員搜尋並選擇有權取得的版本，核對下載檔名與內容。
+外掛對照 [heartleo/zlib v0.0.16](https://github.com/heartleo/zlib/tree/v0.0.16/internal/zlib) 的 EAPI。接到 Z-Library 前，站方帳號須有程式存取及多人共用的授權。[上游條款](https://zlib.bz/tos)
 
-| Worker 設定 | 類型 | 填寫內容 |
-| --- | --- | --- |
-| `FORUM_ORIGIN` | 文字 | 論壇完整 HTTPS 來源，例如 `https://forum.example.org` |
-| `ZLIBRARY_ORIGIN` | 文字 | 書庫服務方授權使用且可直接登入 EAPI 的 HTTPS 來源 |
-| `ZLIBRARY_EMAIL` | Secret | 此次安裝使用的書庫帳號電子郵件 |
-| `ZLIBRARY_PASSWORD` | Secret | 書庫帳號密碼 |
-| `SELECTION_SECRET` | Secret | 新產生的隨機密鑰。可用密碼管理器產生 48 個隨機英數字元 |
-| `ZLIBRARY_FILE_HOSTS` | 選填文字 | 若書檔使用獨立 CDN，填入供應方確認的下載主機名稱，多個用英文逗號分隔 |
+## 測試
 
-上游一般帳號條款限制自動使用及多人共用。營運論壇的帳號需有服務方授予的相應權限。[上游使用條款](https://zlib.bz/tos)
-
-## 下載與維護
-
-服務每次向論壇的 `/session/current.json` 核對會員身分。選書憑證綁定會員與站點，有效 20 分鐘。搜尋及選版不會取檔，按下載才使用上游下載介面。檔案經 Worker 串流傳回論壇。單檔上限 128 MiB，iOS Discourse Hub 的上限為 25 MiB。帳號或檔案網域設定不全、服務方要求驗證及下載額度用盡時，會員會看到對應訊息。
-
-更新元件可在論壇後台點「檢查更新」。要移除入口，清空 `book_service_path` 或解除元件與主題的關聯。要停用整項服務，再從 Cloudflare 移除該路由。
-
-協定依據 [heartleo/zlib v0.0.16](https://github.com/heartleo/zlib/tree/v0.0.16/internal/zlib)。在倉庫根目錄執行 `node --test test/worker.test.mjs` 可重跑服務測試。GitHub Actions 在隔離的 Discourse 環境匯入元件，以瀏覽器驗證會員搜尋、選版及儲存檔案。[測試紀錄](https://github.com/ieduer/discourse-zlibrary/actions)
+執行 `node native/pack.mjs --check` 核對匯入檔，再執行 `node --test test/native.test.mjs`。Discourse 整合測試在隔離環境執行，書庫資料為測試樣本。[測試紀錄](https://github.com/ieduer/discourse-zlibrary/actions)

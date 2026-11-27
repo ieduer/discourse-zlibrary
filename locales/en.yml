@@ -2,7 +2,7 @@ en:
   theme_metadata:
     description: Search and download books inside the forum.
     settings:
-      book_service_path: Forum-relative path for the private book service. Leave blank to hide the book button.
+      book_inbox_group: Dedicated forum inbox group. Leave blank until the native automation is ready.
   zlibrary:
     title: Book library
     query: Title, author or ISBN
@@ -19,11 +19,8 @@ en:
     next: Next
     page_of: Page %{page} of %{total}
     page: Page %{page}
-    download_sent: The save dialog has been requested for “%{title}”.
     search_error: The search could not be completed. Please try again.
     download_error: The file could not be saved. Check your forum session and try again.
-    hub_limit: This file exceeds the 25 MiB limit of the iOS Discourse Hub downloader. Open the forum in a browser to download it.
-    file_limit: This file exceeds the forum’s %{limit} MiB download limit.
     errors:
       configuration: The forum book account has not been configured. Contact a forum administrator.
       account: The provider rejected the forum’s book account. Contact a forum administrator.
@@ -39,3 +36,7 @@ en:
       query: Enter a search term of up to 200 characters and select a valid format and page.
       membership: Sign in to the forum and try again.
       file_host: The file host is not configured for this book service.
+      pending: The forum did not reply in time. Check the private conversation for its response.
+      attachment: The forum could not create an attachment for this file type or size.
+    pm_title: Book library request
+    prepare: Prepare download
