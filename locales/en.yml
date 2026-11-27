@@ -3,6 +3,8 @@ en:
     description: Search and download books inside the forum.
     settings:
       book_inbox_group: Dedicated forum inbox group. Leave blank until the native automation is ready.
+      book_bot_username: Forum username of the dedicated book bot.
+      book_embed_max_mb: Maximum EPUB size to prepare in the browser, in MiB. The forum upload limit also applies.
   zlibrary:
     title: Book library
     query: Title, author or ISBN
@@ -40,3 +42,10 @@ en:
       attachment: The forum could not create an attachment for this file type or size.
     pm_title: Book library request
     prepare: Prepare download
+    embed: Embed EPUB in a reply
+    embedding: Preparing the forum attachment…
+    local_file: Choose the downloaded EPUB
+    select_local: The provider requires a browser download. Download this edition, then select its EPUB file here.
+    embed_limit: The file exceeds the forum attachment limit.
+    invalid_epub: Choose the complete EPUB file for the selected edition.
+    other_draft: Finish the open draft in the other topic before embedding here.

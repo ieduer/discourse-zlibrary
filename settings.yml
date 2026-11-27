@@ -1,3 +1,11 @@
 book_inbox_group:
   type: string
   default: ""
+book_bot_username:
+  type: string
+  default: "ZlibBot"
+book_embed_max_mb:
+  type: integer
+  default: 32
+  min: 1
+  max: 128

@@ -3,6 +3,8 @@ zh_CN:
     description: 在论坛内检索、选择版本并下载图书。
     settings:
       book_inbox_group: 用于接收书库私信的论坛群组名称。完成后台自动化设置后填写。
+      book_bot_username: 专用书库机器人的论坛用户名。
+      book_embed_max_mb: 浏览器准备 EPUB 的大小上限，单位为 MiB。仍受论坛附件上限约束。
   zlibrary:
     title: 书库
     query: 书名、作者或 ISBN
@@ -40,3 +42,10 @@ zh_CN:
       attachment: 论坛无法为这种文件类型或大小建立附件。
     pm_title: 书库请求
     prepare: 准备下载
+    embed: 在本帖嵌入 EPUB
+    embedding: 正在准备论坛附件…
+    local_file: 选择已下载的 EPUB
+    select_local: 供应方要求通过浏览器下载。请先下载选中的版本，再在这里选择该 EPUB。
+    embed_limit: 文件超过论坛允许的附件大小。
+    invalid_epub: 请选择所选版本完整的 EPUB 文件。
+    other_draft: 请先完成其他话题中已打开的草稿，再在这里嵌入。

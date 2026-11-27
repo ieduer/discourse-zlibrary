@@ -3,6 +3,8 @@ zh_TW:
     description: 在論壇內檢索、選擇版本並下載圖書。
     settings:
       book_inbox_group: 接收書庫私訊的論壇群組名稱。完成後台自動化設定後填寫。
+      book_bot_username: 專用書庫機器人的論壇使用者名稱。
+      book_embed_max_mb: 瀏覽器準備 EPUB 的大小上限，單位為 MiB。仍受論壇附件上限約束。
   zlibrary:
     title: 書庫
     query: 書名、作者或 ISBN
@@ -40,3 +42,10 @@ zh_TW:
       attachment: 論壇無法為這個檔案類型或大小建立附件。
     pm_title: 書庫請求
     prepare: 準備下載
+    embed: 在本帖嵌入 EPUB
+    embedding: 正在準備論壇附件…
+    local_file: 選取已下載的 EPUB
+    select_local: 供應端要求由瀏覽器下載。請先下載所選版本，再於此選取該 EPUB。
+    embed_limit: 檔案超過論壇允許的附件大小。
+    invalid_epub: 請選取所選版本完整的 EPUB 檔案。
+    other_draft: 請先完成其他話題已開啟的草稿，再於此嵌入。

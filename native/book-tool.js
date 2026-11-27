@@ -7,26 +7,30 @@ function invoke() {
   if (context.feature_name !== "ai_tool_action" || !(context.user_id > 0) || !context.post_id)
     return "ignored";
   const post = discourse.getPost(context.post_id);
-  if (
-    !post ||
-    post.topic_id !== context.topic_id ||
-    post.user_id !== context.user_id ||
-    post.topic.archetype !== "private_message" ||
-    !post.raw.startsWith(requestMark + "\n")
-  )
+  if (!post || post.topic_id !== context.topic_id || post.user_id !== context.user_id ||
+      !post.topic || typeof post.raw !== "string")
     return "ignored";
+  const inTopic = post.topic.archetype === "regular";
+  let bot = "ZlibBot";
   let request;
-  try {
-    request = JSON.parse(post.raw.slice(requestMark.length + 1));
-  } catch (_) {
-    return "ignored";
+  if (inTopic) {
+    const mention = post.raw.trim().match(/^@([a-z0-9_-]+)(?=$|[\s:：,，])[\s:：,，]*([^\n]{0,260})\s*$/i);
+    if (!mention) return "ignored";
+    const options = accountOptions();
+    bot = options.bot_username || bot;
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_-]{0,39}$/.test(bot) || mention[1].toLowerCase() !== bot.toLowerCase()) return "ignored";
+    let query = mention[2].replace(/^(?:搜尋|搜索|檢索|检索|找書|找书|search\b)[\s:：]*/i, "").trim();
+    const paging = query.match(/\s+--page\s+(\d{1,6})$/i);
+    if (paging) query = query.slice(0, paging.index).trim();
+    request = { op: "search", query, page: paging ? Number(paging[1]) : 1 };
+  } else {
+    if (post.topic.archetype !== "private_message" || !post.raw.startsWith(requestMark + "\n"))
+      return "ignored";
+    try { request = JSON.parse(post.raw.slice(requestMark.length + 1)); }
+    catch (_) { return "ignored"; }
+    if (!request || !/^[a-f0-9-]{36}$/.test(request.nonce) ||
+        !["search", "download", "embed"].includes(request.op)) return "ignored";
   }
-  if (
-    !request ||
-    !/^[a-f0-9-]{36}$/.test(request.nonce) ||
-    !["search", "download"].includes(request.op)
-  )
-    return "ignored";
   if (discourse.getCustomField("post", post.id, receiptKey)) return "already handled";
 
   function fail(code) {
@@ -51,13 +55,21 @@ function invoke() {
       fail("configuration");
     return "https://" + match[1].toLowerCase();
   }
-  function credentials() {
-    let cfg;
+  function accountOptions() {
     try {
-      cfg = JSON.parse(secrets.get("book_account"));
+      return JSON.parse(secrets.get("book_account")) || {};
     } catch (_) {
-      fail("configuration");
+      return {};
     }
+  }
+  function apiPath(value, fallback) {
+    const path = value || fallback;
+    if (typeof path !== "string" || !/^\/[a-z0-9_/{\}.-]+$/i.test(path) ||
+        path.includes("//") || path.includes("..")) fail("configuration");
+    return path;
+  }
+  function credentials() {
+    const cfg = accountOptions();
     if (
       !cfg ||
       typeof cfg.email !== "string" ||
@@ -66,7 +78,11 @@ function invoke() {
       !cfg.password
     )
       fail("configuration");
-    return { origin: endpoint(cfg.origin), email: cfg.email.trim(), password: cfg.password };
+    const filePath = apiPath(cfg.file_path, "/eapi/book/{id}/{hash}/file");
+    if (!filePath.includes("{id}") || !filePath.includes("{hash}")) fail("configuration");
+    return { origin: endpoint(cfg.origin), email: cfg.email.trim(), password: cfg.password,
+      loginPath: apiPath(cfg.login_path, "/eapi/user/login"),
+      searchPath: apiPath(cfg.search_path, "/eapi/book/search"), filePath };
   }
   function api(cfg, path, params, session) {
     const headers = { Accept: "application/json", source: "android" };
@@ -106,7 +122,7 @@ function invoke() {
     fail("upstream");
   }
   function login(cfg) {
-    const user = api(cfg, "/eapi/user/login", { email: cfg.email, password: cfg.password }).user;
+    const user = api(cfg, cfg.loginPath, { email: cfg.email, password: cfg.password }).user;
     const key = user && (user.remix_userkey || user.remix_user_key);
     if (
       !user ||
@@ -163,9 +179,10 @@ function invoke() {
     const cfg = credentials();
     const form = { message: q.trim(), page: String(page), limit: "10" };
     if (extension) form["extensions[]"] = extension;
-    const data = api(cfg, "/eapi/book/search", form, login(cfg));
+    const data = api(cfg, cfg.searchPath, form, login(cfg));
     if (!Array.isArray(data.books)) fail("upstream");
     const rows = data.books.slice(0, 10).map(record).filter(Boolean);
+    rows.sort((a, b) => Number(b.extension === "epub") - Number(a.extension === "epub"));
     discourse.setCustomField(
       "post",
       post.id,
@@ -192,16 +209,20 @@ function invoke() {
       typeof request.selection === "string" && request.selection.match(/^(\d{1,15})\.([0-9])$/);
     if (!m) fail("selection");
     const src = discourse.getPost(Number(m[1]));
-    if (!src || src.user_id !== context.user_id || src.topic_id !== post.topic_id)
-      fail("selection");
+    if (!src || src.user_id !== context.user_id || !src.topic) fail("selection");
+    const ownPrivateSearch = src.topic.archetype === "private_message" && src.topic_id === post.topic_id;
+    const ownTopicSearch = src.topic.archetype === "regular" && src.topic_id === request.source_topic_id;
+    if (!ownPrivateSearch && !ownTopicSearch) fail("selection");
     const saved = discourse.getCustomField("post", src.id, cacheKey);
     if (!saved) fail("selection");
     const data = JSON.parse(saved);
     const book = data.rows[Number(m[2])];
     if (!book || data.expiry <= Date.now()) fail("selection");
+    if (request.op === "embed" && book.extension !== "epub") fail("selection");
     const cfg = credentials();
     const session = login(cfg);
-    const info = api(cfg, "/eapi/book/" + book.id + "/" + book.hash + "/file", null, session);
+    const filePath = cfg.filePath.replace("{id}", book.id).replace("{hash}", book.hash);
+    const info = api(cfg, filePath, null, session);
     let url = (info.file && info.file.downloadLink) || info.downloadLink || info.url || info.link;
     if (typeof url !== "string" || !url || url.length > 8192 || /[\s\\#<>]/.test(url))
       fail("unavailable");
@@ -224,7 +245,7 @@ function invoke() {
       );
     function providerLink(filename) {
       if (privateLink) fail("verification");
-      return { download_url: url, filename, delivery: "provider" };
+      return { download_url: url, filename, bytes: book.bytes, delivery: "provider" };
     }
     const filename =
       (book.title
@@ -234,16 +255,14 @@ function invoke() {
       "." +
       (book.extension || "bin");
     // Provider-issued CDN URLs are downloaded by the member. The shared session stays in Discourse.
-    if (origin !== cfg.origin) return providerLink(filename);
+    if (origin !== cfg.origin && (privateLink || request.op !== "embed")) return providerLink(filename);
     // Authenticated, same-origin files can be delivered as ordinary private-message attachments.
     // The Discourse tool has a 10 MB JavaScript heap. Leave headroom for Base64 and the upload bridge.
     if (!book.bytes || book.bytes > 2 * 1024 * 1024) return providerLink(filename);
+    const fileHeaders = { "Accept-Encoding": "identity", Range: "bytes=0-" + (book.bytes - 1) };
+    if (origin === cfg.origin) fileHeaders.Cookie = session.cookie;
     const file = http.get(url, {
-      headers: {
-        Cookie: session.cookie,
-        "Accept-Encoding": "identity",
-        Range: "bytes=0-" + (book.bytes - 1),
-      },
+      headers: fileHeaders,
       base64Encode: true,
     });
     if (file && [301, 302, 303, 307, 308].includes(file.status)) return providerLink(filename);
@@ -273,6 +292,7 @@ function invoke() {
       }
     }
     if (/^(?:\xEF\xBB\xBF)?\s*(?:<!doctype\s+html|<html)/i.test(prefix)) fail("verification");
+    if (request.op === "embed" && !prefix.startsWith("PK\x03\x04")) fail("incomplete");
     const attachment = upload.create(filename, file.body);
     const short =
       attachment &&
@@ -282,6 +302,7 @@ function invoke() {
     return {
       download_url: "/uploads/short-url/" + short[1],
       filename,
+      bytes: book.bytes,
       delivery: "forum",
       short_url: attachment.short_url,
     };
@@ -305,16 +326,39 @@ function invoke() {
     ];
     result = { error: allowed.includes(error.message) ? error.message : "upstream" };
   }
-  const payload = { marker: resultMark, nonce: request.nonce, result };
-  let raw =
-    resultMark +
-    "\n\n```json\n" +
-    JSON.stringify(payload).replace(/</g, "\\u003c").replace(/`/g, "\\u0060") +
-    "\n```";
-  if (result.short_url) raw += "\n\n[Download](" + result.short_url + ")";
+  function label(value) {
+    return text(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/@/g, "＠").replace(/[\\[\]()*_~|\x60]/g, "\\$&");
+  }
+  function topicReply() {
+    if (!request.query || result.error === "query") return "請在 @" + bot + " 後輸入書名、作者或 ISBN。";
+    if (result.error) return "書庫目前無法完成搜尋（" + result.error + "）。";
+    if (!result.books.length) return "查無「" + label(request.query) + "」的版本。";
+    const lines = ["「" + label(request.query) + "」的搜尋結果。點選需要的版本，再選擇嵌入或下載。", ""];
+    result.books.forEach((book, index) => {
+      const caption = [book.title, book.author, book.publisher, book.year, book.language,
+        book.extension.toUpperCase(), book.size].filter(Boolean).map(label).join(" · ");
+      const url = discourse.baseUrl + "/t/" + post.topic_id + "/" + post.post_number +
+        "#zlibrary-edition-" + book.selection + "-" + (book.extension || "bin");
+      lines.push((index + 1) + ". [" + caption + "](" + url + ")");
+    });
+    if (result.has_next) lines.push("", "下一頁可回覆：" + String.fromCharCode(96) + "@" + bot + " " +
+      text(request.query, 200).replace(/\x60/g, "") + " --page " + (result.page + 1) + String.fromCharCode(96));
+    return lines.join("\n");
+  }
+  let raw;
+  if (inTopic) {
+    raw = topicReply();
+  } else {
+    const payload = { marker: resultMark, nonce: request.nonce, result };
+    raw = resultMark + "\n\n```json\n" +
+      JSON.stringify(payload).replace(/</g, "\\u003c").replace(/\x60/g, "\\u0060") + "\n```";
+    if (result.short_url) raw += "\n\n[Download](" + result.short_url + ")";
+  }
   const reply = discourse.createPost({
     topic_id: post.topic_id,
     reply_to_post_number: post.post_number,
+    ...(inTopic ? { username: bot } : {}),
     raw,
   });
   if (!reply || reply.error) throw new Error("Unable to save the private book response");
