@@ -1,0 +1,18 @@
+zh_TW:
+  site_settings:
+    zlibrary_enabled: "允許已登入的論壇會員使用安裝時設定的帳號搜尋及下載書籍。"
+    zlibrary_max_download_mb: "每次下載的單檔大小上限，單位為 MiB。"
+  zlibrary:
+    errors:
+      configuration: "論壇尚未設定書庫帳號，請聯絡管理員。"
+      account: "上游未接受論壇的書庫帳號，請聯絡管理員。"
+      verification: "書庫服務要求額外驗證或傳回登入頁，請聯絡管理員。"
+      upstream: "書庫服務暫時無法完成這次請求。"
+      timeout: "書庫服務回應逾時，請稍後再試。"
+      unavailable: "這個版本目前無法下載。"
+      quota: "共用帳號的下載額度已用盡，請在額度恢復後再試。"
+      rate_limited: "書庫服務目前限制請求頻率，請稍後再試。"
+      too_large: "這個檔案超過 %{limit} MiB 的下載上限。"
+      incomplete: "檔案傳輸不完整，請稍後再試。"
+      selection: "這次選擇已過期或屬於其他會員，請重新搜尋並選擇版本。"
+      query: "搜尋詞須為 1 至 200 個字元，請確認格式和頁碼也有效。"

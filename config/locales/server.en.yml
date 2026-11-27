@@ -1,0 +1,18 @@
+en:
+  site_settings:
+    zlibrary_enabled: "Allow signed-in members to search and download books using the account configured at installation."
+    zlibrary_max_download_mb: "Maximum file size per download, in MiB."
+  zlibrary:
+    errors:
+      configuration: "The forum book account has not been configured. Contact a forum administrator."
+      account: "The provider rejected the forum’s book account. Contact a forum administrator."
+      verification: "The provider requires verification or returned a sign-in page. Contact a forum administrator."
+      upstream: "The book service could not complete the request."
+      timeout: "The book service timed out. Please try again later."
+      unavailable: "This edition is no longer available to download."
+      quota: "The shared account’s download quota has been reached. Try again after it resets."
+      rate_limited: "The provider is receiving too many requests. Please try again later."
+      too_large: "This file exceeds the download limit of %{limit} MiB."
+      incomplete: "The transfer was incomplete. Please try again later."
+      selection: "This selection has expired or belongs to a different member. Search again and select the edition."
+      query: "Enter a search term of up to 200 characters and select a valid format and page."

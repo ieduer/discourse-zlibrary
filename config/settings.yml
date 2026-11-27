@@ -1,0 +1,8 @@
+plugins:
+  zlibrary_enabled:
+    default: true
+    client: true
+  zlibrary_max_download_mb:
+    default: 128
+    min: 1
+    max: 1024

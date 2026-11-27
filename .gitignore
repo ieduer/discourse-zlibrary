@@ -1,0 +1,6 @@
+.env
+.env.*
+account.json
+tmp/
+log/
+.DS_Store

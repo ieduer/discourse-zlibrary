@@ -1,0 +1,18 @@
+zh_CN:
+  site_settings:
+    zlibrary_enabled: "允许已登录的论坛成员使用安装时设置的账号搜索和下载书籍。"
+    zlibrary_max_download_mb: "每次下载的单个文件大小上限，单位为 MiB。"
+  zlibrary:
+    errors:
+      configuration: "论坛尚未配置书库账号，请联系管理员。"
+      account: "上游未接受论坛的书库账号，请联系管理员。"
+      verification: "书库服务要求额外验证或返回了登录页，请联系管理员。"
+      upstream: "书库服务暂时无法完成本次请求。"
+      timeout: "书库服务响应超时，请稍后再试。"
+      unavailable: "这个版本目前无法下载。"
+      quota: "共用账号的下载额度已用尽，请在额度恢复后再试。"
+      rate_limited: "书库服务正在限制请求频率，请稍后再试。"
+      too_large: "这个文件超过 %{limit} MiB 的下载上限。"
+      incomplete: "文件传输不完整，请稍后再试。"
+      selection: "本次选择已过期或属于其他成员，请重新搜索并选择版本。"
+      query: "搜索词应为 1 至 200 个字符，请确认格式和页码也有效。"

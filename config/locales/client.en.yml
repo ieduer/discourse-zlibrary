@@ -1,0 +1,23 @@
+en:
+  js:
+    zlibrary:
+      title: "Book library"
+      query: "Title, author or ISBN"
+      format: "Format"
+      any_format: "All formats"
+      search: "Search"
+      searching: "Searching…"
+      downloading: "Downloading the selected edition…"
+      results: "Results for “%{query}”"
+      no_results: "No matching editions were found on this page."
+      download: "Download selected edition"
+      pages: "Result pages"
+      previous: "Previous"
+      next: "Next"
+      page_of: "Page %{page} of %{total}"
+      page: "Page %{page}"
+      download_sent: "The save dialog has been requested for “%{title}”."
+      search_error: "The search could not be completed. Please try again."
+      download_error: "The file could not be saved. Check your forum session and try again."
+      hub_limit: "This file exceeds the 25 MiB limit of the iOS Discourse Hub downloader. Open the forum in a browser to download it."
+      file_limit: "This file exceeds the forum’s %{limit} MiB download limit."
