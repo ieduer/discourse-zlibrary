@@ -70,14 +70,23 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
           { success: 1, user: { id: 8, remix_userkey: "private-fixture-session" } }
         when "/eapi/book/search"
           expect(options[:headers].fetch("remix-userkey")).to eq("private-fixture-session")
-          query = URI.decode_www_form(options.fetch(:body)).to_h.fetch("message")
-          case query
+          form = URI.decode_www_form(options.fetch(:body)).to_h
+          case form.fetch("message")
           when "盐"
-            { success: 1, pagination: { current: 1, total_pages: 2 }, books: [
-              { id: 61, hash: "a61", title: "盐的历史", author: "甲", extension: "pdf" },
-              { title: "盐", author: "另一位作者", language: "English" },
-              { id: 62, hash: "a62", title: "食盐", author: "乙", extension: "epub" },
-            ] }
+            index = Integer(form.fetch("page"))
+            rows = if index == 1
+              [
+                { id: 61, hash: "a61", title: "盐的历史", author: "甲", extension: "pdf" },
+                { title: "盐", author: "另一位作者", language: "English" },
+                { id: 62, hash: "a62", title: "食盐", author: "乙", extension: "epub" },
+              ]
+            elsif index == 2
+              expect(uri.host).to eq("z-library.website")
+              expect(form.fetch("extensions[]")).to eq("pdf")
+              [{ id: 53, hash: "def", title: "第二頁的版本", extension: "pdf" },
+               { title: "第二頁的書目", author: "丙" }]
+            end
+            { success: 1, pagination: { current: index, total_pages: 2 }, books: rows }
           when "試讀本"
             { success: 1, books: [{ id: 53, hash: "def", title: "試讀本", year: 1910, extension: "pdf" },
                                   { id: 51, hash: "abc", title: "試讀本", year: 1900, extension: "epub", filesize: epub.bytesize }] }
@@ -169,6 +178,41 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     expect(answer.raw).to match(/盐的历史.*另一位作者.*食盐/m)
     expect(answer.raw.scan("#zlibrary-edition-").size).to eq(2)
     expect(paths.grep(%r{/file$})).to eq(before_downloads)
+
+    request = PostCreator.create!(member, topic_id: story_topic.id, raw: "@ZlibBot 盐 --site 2 --ext pdf", skip_validations: true)
+    process_book_request(public_auto)
+    filtered = story_topic.posts.find_by!(user_id: bot.id, reply_to_post_number: request.post_number)
+    count = story_topic.posts.count
+    original = "#post_#{answer.post_number}"
+    current = "#post_#{filtered.post_number}"
+    visit(story_topic.relative_url)
+    expect(page).to have_css("#{original} .zlibrary-previous[disabled]")
+    expect(page).to have_css("#{current} .zlibrary-previous[disabled]")
+    expect(page).to have_no_css("#{current} .zlibrary-page-fallback")
+    find("#{current} .zlibrary-next").click
+    process_book_request(auto)
+    expect(page).to have_css("#{current} .zlibrary__inline-results li", count: 2)
+    expect(page).to have_css("#{current} .zlibrary-next[disabled]")
+    expect(page).to have_css("#{current} .zlibrary__edition", count: 1)
+    expect(page).to have_css("#{original} .zlibrary-previous[disabled]")
+    expect(page).to have_no_css("#{original} .zlibrary__inline-results")
+    expect(paths.grep(%r{/file$})).to eq(before_downloads)
+    expect(story_topic.posts.count).to eq(count)
+    expect(URI(page.current_url).path).to start_with(story_topic.relative_url)
+
+    find("#{current} .zlibrary__edition", text: "第二頁的版本").click
+    find(".zlibrary-prepare").click
+    process_book_request(auto)
+    expect(find("a.zlibrary-save")[:href]).to eq("https://files.example/selected.pdf")
+    inline_search = Post.where("raw LIKE ?", 'book-library-request-v1%').order(:id).to_a.reverse.find { |p| p.raw.include?('"query":"盐"') }
+    expect(inline_search.topic).to be_private_message
+    expect(inline_search.topic.posts.where("raw LIKE ?", '%"op":"download"%').count).to eq(1)
+    page.driver.with_playwright_page { |browser| browser.keyboard.press("Escape") }
+    find("#{current} .zlibrary-previous").click
+    process_book_request(auto)
+    expect(page).to have_css("#{current} .zlibrary-previous[disabled]")
+    expect(page).to have_css("#{current} .zlibrary__inline-results li", count: 3)
+    expect(story_topic.posts.count).to eq(count)
     expect(hosts.uniq - ["z-lib.gd", "z-library.website", "files.example"]).to be_empty
   end
 end

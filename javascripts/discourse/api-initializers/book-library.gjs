@@ -2,6 +2,52 @@ import DButton from "discourse/ui-kit/d-button";
 import { apiInitializer } from "discourse/lib/api";
 import { i18n } from "discourse-i18n";
 import BookLibrary from "../components/book-library";
+import BookPostPages from "../components/book-post-pages";
+
+function decoratePages(element, helper, bot, group, openEdition) {
+  if (!helper?.renderGlimmer || element.querySelector(":scope > .zlibrary-post-pager")) return;
+  const paragraphs = [...element.querySelectorAll(":scope > p")];
+  const heading = paragraphs.find(p => /^(?:「.+」的搜尋結果。|書庫在這一頁沒有傳回「.+」的結果。)/u.test(p.textContent));
+  if (!heading) return;
+  const title = heading.textContent.match(/「(.+)」的(?:搜尋)?結果/u)[1];
+  const badge = paragraphs.find(p => /^第 \d+ 頁(?:，共 \d+ 頁)?。$/.test(p.textContent));
+  const numbers = badge?.textContent.match(/\d+/g);
+  const list = (badge || heading).nextElementSibling;
+  const commands = [];
+  for (const p of paragraphs) {
+    const direction = p.textContent.match(/^(上|下)一頁可回覆：/u);
+    if (!direction) continue;
+    const command = p.querySelector("code")?.textContent.match(/^@([\w-]+) (.+?)(?: --site ([1-3]))?(?: --ext (epub|pdf|mobi|azw3|djvu|fb2|txt))? --page (\d+)$/i);
+    if (command?.[1].toLowerCase() !== bot) continue;
+    commands.push({ p, forward: direction[1] === "下", query: command[2], site: command[3], extension: command[4], page: Number(command[5]) });
+  }
+  const command = commands[0];
+  if (!numbers && !command) return;
+  const page = numbers ? Number(numbers[0]) : command.page + (command.forward ? -1 : 1);
+  const total = Number(numbers?.[1]) || null;
+  const filters = { query: title };
+  if (command) {
+    // The command keeps literal @ signs. The heading also keeps backticks.
+    let pos = 0;
+    filters.query = title.replace(/./gu, char => {
+      if (char.charCodeAt(0) === 96) return char;
+      const literal = command.query.slice(pos, pos + char.length);
+      pos += char.length;
+      return char === "＠" && literal === "@" ? literal : char;
+    });
+    if (command.site) filters.site = Number(command.site);
+    if (command.extension) filters.extension = command.extension;
+  }
+  const host = document.createElement("div");
+  host.className = "zlibrary-post-pager";
+  const nativeList = list?.tagName === "OL" ? list : null;
+  (commands.at(-1)?.p || nativeList || badge || heading).after(host);
+  for (const p of [badge, ...commands.map(c => c.p)]) p?.classList.add("zlibrary-page-fallback");
+  heading.classList.add("zlibrary-initial-results");
+  nativeList?.classList.add("zlibrary-initial-results");
+  const initial = { page, total_pages: total, has_next: total ? page < total : commands.some(c => c.forward) };
+  helper.renderGlimmer(host, BookPostPages, { initial, filters, group, openEdition });
+}
 
 export default apiInitializer((api) => {
   const group = settings.book_inbox_group.trim();
@@ -17,6 +63,10 @@ export default apiInitializer((api) => {
   api.decorateCookedElement((element, helper) => {
     const post = helper?.getModel?.();
     if (!post || post.username?.toLowerCase() !== bot) return;
+    const openEdition = (edition, conversation) => modal.show(BookLibrary, { model: {
+      group, topic: post.topic || currentTopic(), sourceTopicId: post.topic_id, edition, conversation,
+    } });
+    decoratePages(element, helper, bot, group, openEdition);
     for (const link of element.querySelectorAll('a[href*="#zlibrary-edition-"]')) {
       const url = new URL(link.href, window.location.href);
       const edition = url.hash.match(/^#zlibrary-edition-(\d{1,15}\.\d+)-([a-z0-9]{1,12})$/);
@@ -26,13 +76,10 @@ export default apiInitializer((api) => {
         if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
         event.preventDefault();
         event.stopPropagation();
-        modal.show(BookLibrary, { model: {
-          group, topic: post.topic || currentTopic(), sourceTopicId: post.topic_id,
-          edition: { selection: edition[1], extension: edition[2], title: link.textContent.trim() }
-        } });
+        openEdition({ selection: edition[1], extension: edition[2], title: link.textContent.trim() });
       });
     }
-  }, { id: "forum-book-library-choices" });
+  }, { id: "forum-book-library-choices", onlyStream: true });
   const label = i18n(themePrefix("zlibrary.title"));
   api.headerIcons.add(
     "forum-book-library",

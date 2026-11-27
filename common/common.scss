@@ -50,3 +50,15 @@
     &__download { padding-left: 0.6rem; }
   }
 }
+
+.cooked:has(> .zlibrary-post-pager .zlibrary__post-nav) > .zlibrary-page-fallback,
+.cooked:has(> .zlibrary-post-pager .zlibrary__inline-results) > .zlibrary-initial-results {
+  display: none;
+}
+
+.zlibrary-post-pager {
+  .zlibrary__edition { text-align: start; white-space: normal; overflow-wrap: anywhere; }
+  .zlibrary__post-nav { gap: 0.5rem 0.8rem; }
+  .zlibrary__post-nav button { min-height: 44px; }
+  .alert { margin-top: 0.6rem; }
+}

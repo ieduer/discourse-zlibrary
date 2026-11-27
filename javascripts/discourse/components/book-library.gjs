@@ -11,18 +11,7 @@ import getURL from "discourse/lib/get-url";
 import Composer from "discourse/models/composer";
 import Draft from "discourse/models/draft";
 import { eq, not, or } from "discourse/truth-helpers";
-import { i18n } from "discourse-i18n";
-
-const t = (key, options) => i18n(themePrefix(`zlibrary.${key}`), options);
-const knownErrors = new Set(["configuration", "account", "verification", "upstream", "unavailable", "quota", "rate_limited", "incomplete", "selection", "query", "attachment", "pending"]);
-
-function replyPayload(post) {
-  if (post.user_id !== -1) return null;
-  const doc = new DOMParser().parseFromString(post.cooked || "", "text/html");
-  const code = doc.querySelector("pre code");
-  if (!code) return null;
-  try { return JSON.parse(code.textContent); } catch { return null; }
-}
+import BookConversation, { t } from "../lib/book-conversation";
 
 const BookRecord = <template>
   <span class="zlibrary__record">
@@ -44,7 +33,6 @@ export default class BookLibrary extends Component {
   @service composer;
   @service appEvents;
   @service siteSettings;
-  topicId = null;
   @tracked readyFile = null;
   @tracked localFileNeeded = false;
   formats = ["epub", "pdf", "mobi", "azw3", "djvu", "fb2", "txt"];
@@ -57,6 +45,7 @@ export default class BookLibrary extends Component {
 
   constructor(owner, args) {
     super(owner, args);
+    this.conversation = args.model.conversation || new BookConversation(args.model.group);
     const edition = args.model.edition;
     if (edition?.selection) {
       this.selected = edition;
@@ -69,37 +58,8 @@ export default class BookLibrary extends Component {
     return this.selected?.extension === "epub" && !!this.args.model.topic?.id;
   }
 
-  async request(operation, fields) {
-    const nonce = crypto.randomUUID();
-    const raw = "book-library-request-v1\n" + JSON.stringify({ op: operation, nonce, ...fields });
-    const target = this.topicId
-      ? { topic_id: this.topicId }
-      : { archetype: "private_message", target_recipients: this.args.model.group,
-          title: t("pm_title") + " " + nonce.slice(0, 13) };
-    const created = await ajax("/posts.json", { type: "POST", data: { ...target, raw } });
-    const sent = created.post || created;
-    if (!sent.topic_id || !sent.post_number) throw new Error(t("errors.pending"));
-    this.topicId = sent.topic_id;
-    const deadline = Date.now() + 90000;
-    let delay = 600;
-    while (Date.now() < deadline && !this.isDestroying && !this.isDestroyed) {
-      const page = await ajax(`/t/${sent.topic_id}/posts.json`, {
-        data: { post_number: sent.post_number, asc: true },
-      });
-      for (const post of page.post_stream?.posts || []) {
-        if (post.reply_to_post_number !== sent.post_number) continue;
-        const packet = replyPayload(post);
-        if (packet?.marker !== "book-library-result-v1" || packet.nonce !== nonce) continue;
-        if (packet.result?.error) {
-          const key = knownErrors.has(packet.result.error) ? packet.result.error : "upstream";
-          throw new Error(t("errors." + key));
-        }
-        return packet.result;
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, delay));
-      delay = Math.min(delay + 600, 4000);
-    }
-    throw new Error(t("errors.pending"));
+  request(operation, fields) {
+    return this.conversation.request(operation, fields, () => !this.isDestroying && !this.isDestroyed);
   }
 
   @action
