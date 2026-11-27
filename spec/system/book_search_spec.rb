@@ -7,10 +7,21 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
   fab!(:inbox) { Fabricate(:group, name: "zlibrary", messageable_level: Group::ALIAS_LEVELS[:everyone]) }
   let(:root) { File.expand_path("../..", __dir__) }
 
+  def process_book_request(automation)
+    worker = Jobs::DiscourseAutomation::Trigger
+    try_until_success do
+      automation_ids = worker.jobs.map { |job| job.fetch("args").first.fetch("automation_id") }
+      expect(automation_ids).to include(automation.id)
+    end
+    # Sidekiq executes this after the post-created event has returned.
+    worker.drain
+    expect(automation.stats.sum(:total_errors)).to eq(0)
+  end
+
   it "imports the component, searches in a group PM and downloads exactly the chosen edition" do
     SiteSetting.discourse_ai_enabled = true
     SiteSetting.discourse_automation_enabled = true
-    Jobs.run_immediately!
+    Jobs.run_later!
     theme = RemoteTheme.import_theme_from_directory(root)
     expect(theme.component).to be(true)
     Theme.find(SiteSetting.default_theme_id).child_themes << theme
@@ -58,10 +69,13 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
       find('input[name="query"]').set("試讀本")
       find('button[type="submit"]').click
     end
-    expect(page).to have_css(".zlibrary__book", count: 2), -> { "Book UI: #{page.all('.zlibrary', wait: 0).map(&:text)}; book calls: #{paths}; PM posts: #{Post.where('raw LIKE ?','book-library-%').pluck(:post_number, :user_id).inspect}" }
+    process_book_request(auto)
+    expect(paths).to eq(["/eapi/user/login", "/eapi/book/search"])
+    expect(page).to have_css(".zlibrary__book", count: 2)
     find(".zlibrary__book", text: "1910").click
     expect(paths.grep(%r{/file$})).to be_empty
     find(".zlibrary__download button").click
+    process_book_request(auto)
     link = find("a.zlibrary-save")
     expect(link[:href]).to eq("https://files.example/selected.pdf")
     page.driver.with_playwright_page do |browser|

@@ -47,7 +47,7 @@ export default class BookLibrary extends Component {
     let delay = 600;
     while (Date.now() < deadline && !this.isDestroying && !this.isDestroyed) {
       const page = await ajax(`/t/${sent.topic_id}/posts.json`, {
-        data: { post_number: sent.post_number, include_raw: false },
+        data: { post_number: sent.post_number, asc: true },
       });
       for (const post of page.post_stream?.posts || []) {
         if (post.reply_to_post_number !== sent.post_number) continue;

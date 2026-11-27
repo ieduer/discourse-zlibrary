@@ -24,4 +24,4 @@
 
 ## 測試
 
-執行 `node native/pack.mjs --check` 核對匯入檔，再執行 `node --test test/native.test.mjs`。Discourse 整合測試在隔離環境執行，書庫資料為測試樣本。[測試紀錄](https://github.com/ieduer/discourse-zlibrary/actions)
+執行 `node native/pack.mjs --check` 核對匯入檔，再執行 `node --test test/native.test.mjs`。一般程式提交只執行上述檢查。需要驗證論壇安裝與瀏覽器下載時，可在 Actions 手動執行，或在 `main` 的提交訊息中加入 `[forum-ci]`。完整測試使用隔離的 Discourse 與書庫樣本，限時 15 分鐘。[測試紀錄](https://github.com/ieduer/discourse-zlibrary/actions)
