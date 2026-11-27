@@ -1,6 +1,8 @@
 # Discourse Z-Library
 
-這個外掛在論壇側欄加入「書庫」。已登入的會員可以按書名、作者或 ISBN 搜尋，按格式篩選，選定一個版本後下載。每個會員使用管理員在安裝時設定的同一個上游帳號，下載共用該帳號的額度。
+這個外掛在論壇側欄加入「書庫」。已登入的會員可以按書名、作者或 ISBN 搜尋，按格式篩選，選定一個版本後下載。論壇伺服器使用管理員在安裝時設定的帳號，所有下載共用該帳號的額度。
+
+對接 Z-Library 前，營運方需取得涵蓋程式存取及多人共用的授權。一般帳號條款第 7 節禁止自動建立帳號，第 15 節禁止讓他人使用同一帳號。倉庫內的安裝測試使用模擬書目與檔案，可以在沒有真實帳號的環境執行。[上游使用條款](https://zlib.bz/tos)
 
 ## 安裝在自管 Discourse
 
@@ -48,6 +50,7 @@
 
 ```sh
 LOAD_PLUGINS=1 bundle exec rspec plugins/discourse-zlibrary/spec/requests/books_spec.rb
+LOAD_PLUGINS=1 bundle exec rspec plugins/discourse-zlibrary/spec/system/book_search_spec.rb
 ```
 
 對照的上游提交為 `1484717de019f2f4b8bff6cb862f88d0acdc8c56`。[登入與搜尋](https://github.com/heartleo/zlib/blob/v0.0.16/internal/zlib/eapi.go) · [下載連結解析](https://github.com/heartleo/zlib/blob/v0.0.16/internal/zlib/eapi_book.go) · [Discourse 自管外掛安裝文件](https://meta.discourse.org/t/install-plugins-on-a-self-hosted-site/19157)

@@ -17,8 +17,10 @@ RSpec.describe "Searching and downloading books", type: :system do
     transport.editions
     sign_in(member)
     visit("/z-library")
-    fill_in(I18n.t("js.zlibrary.query"), with: "試讀本")
-    click_button(I18n.t("js.zlibrary.search"))
+    within("form.zlibrary__search") do
+      fill_in(I18n.t("js.zlibrary.query"), with: "試讀本")
+      click_button(I18n.t("js.zlibrary.search"))
+    end
     expect(page).to have_css(".zlibrary__book", count: 2)
     find(".zlibrary__book", text: "1910").click
     expect(transport.requests.length).to eq(2)
