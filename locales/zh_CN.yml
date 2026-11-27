@@ -15,6 +15,9 @@ zh_CN:
     searching: 正在搜索…
     downloading: 正在下载所选版本…
     results: "“%{query}”的搜索结果"
+    untitled: 未提供书名
+    translator: 译者 %{name}
+    no_download: 未提供下载
     no_results: 这一页没有找到符合条件的版本。
     download: 下载所选版本
     pages: 搜索结果分页

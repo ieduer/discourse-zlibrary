@@ -19,7 +19,7 @@ export default apiInitializer((api) => {
     if (!post || post.username?.toLowerCase() !== bot) return;
     for (const link of element.querySelectorAll('a[href*="#zlibrary-edition-"]')) {
       const url = new URL(link.href, window.location.href);
-      const edition = url.hash.match(/^#zlibrary-edition-(\d{1,15}\.[0-9])-([a-z0-9]{1,12})$/);
+      const edition = url.hash.match(/^#zlibrary-edition-(\d{1,15}\.\d+)-([a-z0-9]{1,12})$/);
       if (url.origin !== window.location.origin || !edition || link.dataset.zlibraryChoice) continue;
       link.dataset.zlibraryChoice = "true";
       link.addEventListener("click", (event) => {

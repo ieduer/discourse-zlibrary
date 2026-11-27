@@ -24,6 +24,22 @@ function replyPayload(post) {
   try { return JSON.parse(code.textContent); } catch { return null; }
 }
 
+const BookRecord = <template>
+  <span class="zlibrary__record">
+    <strong>{{if @book.title @book.title (t "untitled")}}</strong>
+    {{#if @book.author}}<span>{{@book.author}}</span>{{/if}}
+    <span class="zlibrary__metadata">
+      {{#if @book.translator}}<span>{{t "translator" name=@book.translator}}</span>{{/if}}
+      {{#if @book.publisher}}<span>{{@book.publisher}}</span>{{/if}}
+      {{#if @book.year}}<span>{{@book.year}}</span>{{/if}}
+      {{#if @book.language}}<span>{{@book.language}}</span>{{/if}}
+      {{#if @book.extension}}<span class="zlibrary__format">{{@book.extension}}</span>{{/if}}
+      {{#if @book.size}}<span>{{@book.size}}</span>{{/if}}
+      {{#unless @book.selection}}<span>{{t "no_download"}}</span>{{/unless}}
+    </span>
+  </span>
+</template>;
+
 export default class BookLibrary extends Component {
   @service composer;
   @service appEvents;
@@ -42,7 +58,7 @@ export default class BookLibrary extends Component {
   constructor(owner, args) {
     super(owner, args);
     const edition = args.model.edition;
-    if (edition) {
+    if (edition?.selection) {
       this.selected = edition;
       this.submitted = { query: edition.title };
       this.result = { books: [edition], page: 1 };
@@ -100,7 +116,8 @@ export default class BookLibrary extends Component {
 
   @action
   changePage(offset) {
-    if (!this.busy && this.result) {
+    if (this.busy || !this.result) return;
+    if ((offset === -1 && this.result.page > 1) || (offset === 1 && this.result.has_next)) {
       return this.loadPage(this.submitted, this.result.page + offset);
     }
   }
@@ -127,6 +144,7 @@ export default class BookLibrary extends Component {
 
   @action
   choose(book) {
+    if (!book?.selection || this.busy) return;
     this.selected = book;
     this.readyFile = null;
     this.localFileNeeded = false;
@@ -148,7 +166,7 @@ export default class BookLibrary extends Component {
 
   @action
   async download() {
-    if (!this.selected || this.busy) return;
+    if (!this.selected?.selection || this.busy) return;
     this.busy = "download";
     this.error = "";
     try {
@@ -294,27 +312,23 @@ export default class BookLibrary extends Component {
           {{#if this.result}}
             <fieldset class="zlibrary__results" disabled={{this.busy}}>
               <legend>{{t "results" query=this.submitted.query}}</legend>
-              {{#each this.result.books key="selection" as |book|}}
-                <label class="zlibrary__book">
-                  <input
-                    type="radio"
-                    name="zlibrary-edition"
-                    checked={{eq this.selected.selection book.selection}}
-                    {{on "change" (fn this.choose book)}}
-                  />
-                  <span class="zlibrary__record">
-                    <strong>{{book.title}}</strong>
-                    {{#if book.author}}<span>{{book.author}}</span>{{/if}}
-                    <span class="zlibrary__metadata">
-                      {{#if book.publisher}}<span>{{book.publisher}}</span>{{/if}}
-                      {{#if book.year}}<span>{{book.year}}</span>{{/if}}
-                      {{#if book.language}}<span>{{book.language}}</span>{{/if}}
-                      {{#if book.extension}}<span class="zlibrary__format">{{book.extension}}</span>{{/if}}
-                      {{#if book.size}}<span>{{book.size}}</span>{{/if}}
-                    </span>
-                  </span>
-                </label>
-                {{#if (eq this.selected.selection book.selection)}}
+              {{#each this.result.books key="@index" as |book|}}
+                {{#if book.selection}}
+                  <label class="zlibrary__book">
+                    <input
+                      type="radio"
+                      name="zlibrary-edition"
+                      checked={{eq this.selected book}}
+                      {{on "change" (fn this.choose book)}}
+                    />
+                    <BookRecord @book={{book}} />
+                  </label>
+                {{else}}
+                  <div class="zlibrary__book zlibrary__book--unavailable">
+                    <BookRecord @book={{book}} />
+                  </div>
+                {{/if}}
+                {{#if (eq this.selected book)}}
                   <div class="zlibrary__download">
                     {{#if this.canEmbed}}
                       <button class="btn btn-primary zlibrary-embed" type="button" disabled={{this.busy}} {{on "click" this.embed}}>{{t "embed"}}</button>

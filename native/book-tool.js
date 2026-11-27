@@ -1,16 +1,18 @@
 // Discourse AI Tool Action entry point. All provider requests run in the forum's server-side tool runtime.
 function parseBookSearchFlags(input) {
   const command = input.trim();
-  const start = command.search(/(?:^|\s)--(?:site|page)\b/i);
+  const start = command.search(/(?:^|\s)--(?:site|page|ext)\b/i);
   if (start < 0) return { query: command };
   const options = { query: command.slice(0, start).trim() };
   const tokens = command.slice(start).trim().split(/\s+/);
-  if (tokens.length !== 2 && tokens.length !== 4) return { error: "query" };
+  if (tokens.length > 6 || tokens.length % 2) return { error: "query" };
   for (let i = 0; i < tokens.length; i += 2) {
     const flag = tokens[i].toLowerCase();
     const value = tokens[i + 1];
     if (flag === "--site" && options.site === undefined && /^[1-3]$/.test(value)) {
       options.site = Number(value);
+    } else if (flag === "--ext" && options.extension === undefined && /^(epub|pdf|mobi|azw3|djvu|fb2|txt)$/i.test(value)) {
+      options.extension = value.toLowerCase();
     } else if (flag === "--page" && options.page === undefined && /^\d{1,6}$/.test(value) && Number(value) > 0) {
       options.page = Number(value);
     } else {
@@ -38,8 +40,6 @@ function processBookPost(post) {
   const inTopic = post.topic.archetype === "regular";
   let bot = "ZlibBot";
   let request;
-  let topicBook;
-  let publicEdition;
   if (inTopic) {
     if (post.hidden || post.deleted_at || post.user_deleted || (post.post_type && post.post_type !== 1)) return "ignored";
     const mention = post.raw.trim().match(/^@([a-z0-9_-]+)(?=$|[\s:：,，])[\s:：,，]*([^\n]{0,260})\s*$/i);
@@ -54,7 +54,7 @@ function processBookPost(post) {
     }
     if (addressed && (!request || (request.op === "reply" && request.kind === "clarify" && mention[2]))) {
       const flags = parseBookSearchFlags(mention[2]);
-      request = { op: "search", command: flags.query, page: flags.page || 1, site: flags.site, invalid: flags.error };
+      request = { op: "search", command: flags.query, page: flags.page || 1, site: flags.site, extension: flags.extension, invalid: flags.error };
     }
     if (!request) return "ignored";
   } else {
@@ -205,21 +205,22 @@ function processBookPost(post) {
       cookie: "remix_userid=" + user.id + "; remix_userkey=" + key,
     };
   }
-  function record(row) {
-    if (
-      !row ||
-      !["string", "number"].includes(typeof row.id) ||
-      !/^[\w-]{1,128}$/.test(String(row.id)) ||
-      typeof row.hash !== "string" ||
-      !/^[\w-]{1,128}$/.test(row.hash) ||
-      !text(row.title)
-    )
-      return null;
+  function record(value, origin) {
+    const row = value && typeof value === "object" ? value : {};
+    let id = typeof row.id === "string" || typeof row.id === "number" ? String(row.id) : "";
+    let hash = typeof row.hash === "string" ? row.hash : "";
+    const ref = /^[\w-]{1,128}$/;
+    if (!ref.test(id) || !ref.test(hash)) {
+      const href = typeof row.href === "string" ? row.href : "";
+      const path = href.startsWith(origin + "/") ? href.slice(origin.length) : href;
+      const link = path.match(/^\/book\/(\d{1,128})\/([\w-]{1,128})(?=[/?#]|$)/);
+      id = link ? link[1] : "";
+      hash = link ? link[2] : "";
+    }
     const extension = text(row.extension, 12).toLowerCase();
     const bytes = Number(row.filesize);
     return {
-      id: String(row.id),
-      hash: row.hash,
+      id, hash,
       title: text(row.title),
       author: text(row.author),
       translator: text(row.translator),
@@ -231,14 +232,33 @@ function processBookPost(post) {
       bytes: Number.isSafeInteger(bytes) && bytes > 0 ? bytes : null,
     };
   }
+  function saveSelections(origin, rows) {
+    const compact = rows.map(({ id, hash, title, extension, bytes }) =>
+      id && hash ? { id, hash, title, extension, bytes } : null);
+    const meta = { expiry: Date.now() + 1200000, origin };
+    const body = JSON.stringify(compact);
+    const inline = JSON.stringify({ ...meta, rows: compact });
+    if (inline.length <= 1024) {
+      discourse.setCustomField("post", post.id, cacheKey, inline);
+      return;
+    }
+    // Individual Discourse custom fields allow 1024 characters. Publish the manifest last.
+    const generation = crypto.sha256(origin + "\n" + body);
+    compact.forEach((book, index) => {
+      if (book) discourse.setCustomField("post", post.id, cacheKey + "_" + generation + "_" + index, JSON.stringify(book));
+    });
+    discourse.setCustomField("post", post.id, cacheKey, JSON.stringify({ ...meta, generation, count: compact.length }));
+  }
   function search() {
     if (!inTopic && typeof request.query === "string") {
       const flags = parseBookSearchFlags(request.query);
-      if (flags.error || (flags.site !== undefined && request.site !== undefined && flags.site !== request.site))
+      if (flags.error || (flags.site !== undefined && request.site !== undefined && flags.site !== request.site) ||
+          (flags.extension && request.extension && flags.extension !== request.extension))
         fail("query");
       request.query = flags.query;
       if (flags.page !== undefined) request.page = flags.page;
       if (flags.site !== undefined) request.site = flags.site;
+      if (flags.extension) request.extension = flags.extension;
     }
     const q = request.query;
     const page = request.page;
@@ -273,16 +293,9 @@ function processBookPost(post) {
     }
     if (!origin) fail("upstream");
     if (!Array.isArray(data.books)) fail("upstream");
-    let rows = contextualEditions(data.books.slice(0, 10).map(record).filter(Boolean), topicBook);
-    if (publicEdition) rows = rows.filter(row => samePublicEditionWork(row, publicEdition));
-    if (request.chinese)
-      rows = rows.filter(row => /chinese|中文|汉语|漢語|^zh\b|^chi$|^zho$/i.test(row.language));
-    if (!topicBook || !topicBook.identify) discourse.setCustomField(
-      "post",
-      post.id,
-      cacheKey,
-      JSON.stringify({ expiry: Date.now() + 1200000, origin, rows }),
-    );
+    const rows = data.books.map(row => record(row, origin));
+    try { saveSelections(origin, rows); }
+    catch (_) { fail("selection"); }
     const current = Number(data.pagination && data.pagination.current) || page;
     const total = Number(data.pagination && data.pagination.total_pages) || null;
     return {
@@ -292,7 +305,8 @@ function processBookPost(post) {
         const copy = Object.assign({}, row);
         delete copy.id;
         delete copy.hash;
-        copy.selection = post.id + "." + i;
+        copy.row_key = post.id + "." + i;
+        copy.selection = row.id && row.hash ? copy.row_key : null;
         return copy;
       }),
       page: current,
@@ -302,7 +316,7 @@ function processBookPost(post) {
   }
   function download() {
     const m =
-      typeof request.selection === "string" && request.selection.match(/^(\d{1,15})\.([0-9])$/);
+      typeof request.selection === "string" && request.selection.match(/^(\d{1,15})\.(0|[1-9]\d{0,6})$/);
     if (!m) fail("selection");
     const src = discourse.getPost(Number(m[1]));
     if (!src || src.user_id !== post.user_id || !src.topic) fail("selection");
@@ -312,8 +326,19 @@ function processBookPost(post) {
     const saved = discourse.getCustomField("post", src.id, cacheKey);
     if (!saved) fail("selection");
     const data = JSON.parse(saved);
-    const book = data.rows[Number(m[2])];
-    if (!book || data.expiry <= Date.now()) fail("selection");
+    if (!Number.isFinite(data.expiry) || data.expiry <= Date.now()) fail("selection");
+    const index = Number(m[2]);
+    let book = Array.isArray(data.rows) && data.rows[index];
+    if (!book && /^[a-f0-9]{64}$/.test(data.generation) && Number.isSafeInteger(data.count) && index < data.count) {
+      const value = discourse.getCustomField("post", src.id, cacheKey + "_" + data.generation + "_" + index);
+      if (value) book = JSON.parse(value);
+    }
+    // A previous tool version committed a digest per selection in the manifest.
+    if (!book && Array.isArray(data.slots) && /^[a-f0-9]{64}$/.test(data.slots[index])) {
+      const value = discourse.getCustomField("post", src.id, cacheKey + "_" + data.slots[index]);
+      if (value && crypto.sha256(value) === data.slots[index]) book = JSON.parse(value);
+    }
+    if (!book || !book.id || !book.hash) fail("selection");
     if (request.op === "embed" && book.extension !== "epub") fail("selection");
     const cfg = credentials();
     const sourceOrigin = data.origin === undefined && cfg.legacy ? cfg.origins[0] : data.origin;
@@ -409,10 +434,10 @@ function processBookPost(post) {
   try {
     if (request.invalid) fail("query");
     if (inTopic && request.command !== undefined) {
-      topicBook = resolveTopicBook(post, request.command);
-      request.query = topicBook.query;
+      const keywords = resolveTopicBook(post, request.command, request.inherited);
+      request.query = keywords.query;
+      request.extension = keywords.extension || request.extension;
     }
-    if (inTopic && !topicBook?.identify) publicEdition = publicEditionFor(request.query);
     if (request.op !== "reply") result = request.op === "search" ? search() : download();
   } catch (error) {
     const allowed = [
@@ -442,53 +467,37 @@ function processBookPost(post) {
         return "你想繼續找《" + label(request.previous.query) + "》嗎？可以告訴我需要哪種格式，或給我另一個書名。";
       return "你想找哪本書？請告訴我書名、作者或 ISBN。";
     }
-    if (topicBook && topicBook.identify && !request.query)
-      return "從這篇帖子裡還無法確定收錄作品的書名。請補充書名、ISBN，或貼出註明出處的那一行。";
-    if (request.invalid || (request.site && result.error === "query" && request.query)) return "搜尋選項有誤。請將 --page 設為正整數，--site 設為論壇已設定的站點編號。";
-    if (result.error === "query") return "請在 @" + bot + " 後補充書名、作者或 ISBN。";
-    if (topicBook && topicBook.identify) {
-      const title = topicBook.titles && topicBook.titles[0] || request.query;
-      const lines = [];
-      if (topicBook.known) {
-        lines.push(topicBook.known.citation);
-        const translation = topicBook.known.translations.find(entry => entry.names.includes(topicBook.translator));
-        if (translation) lines.push(translation.citation);
-      } else if (topicBook.citationUrl) {
-        lines.push(label(topicBook.author) + "的〈" + label(topicBook.story) + "〉收在《" + label(title) + "》。[Wikidata 作品書目](" + topicBook.citationUrl + ")");
-      } else {
-        lines.push("帖子標註的" + (topicBook.container ? "出處" : "書目") + "是《" + label(title) + "》。[查閱圖書館目錄](https://search.worldcat.org/search?q=" + encodeURIComponent(request.query) + ")");
-      }
-      if (!result.error && result.books.length) {
-        lines.push("本頁符合的書目資料如下。");
-        lines.push(result.books.map(book => [book.title, book.author, book.translator && "譯者 " + book.translator,
-          book.publisher, book.year, book.language, book.extension.toUpperCase()].filter(Boolean).map(label).join(" · "))
-          .map(caption => "* " + caption).join("\n"));
-      } else if (result.error) lines.push("書庫查詢暫時失敗（" + result.error + "）。");
-      else lines.push("這一頁沒有符合的書庫版本。");
-      return lines.join("\n\n");
-    }
+    if (request.invalid || (request.site && result.error === "query" && request.query))
+      return "搜尋選項有誤。請核對 --page 的頁碼、--site 的站點編號及 --ext 的格式。";
+    if (result.error === "query") return "請提供要搜尋的書名、作者或 ISBN。";
+    if (result.error === "selection") return "已收到書庫結果，但論壇未能儲存選版資料。請再搜尋一次。";
     if (result.error) return "書庫目前無法完成搜尋（" + result.error + "）。";
-    if (!result.books.length) return "查無「" + label(request.query) + "」的版本。";
-    const lines = ["「" + label(request.query) + "」的搜尋結果。點選需要的版本，再選擇嵌入或下載。", ""];
+    const lines = [result.books.length ? "「" + label(result.query) + "」的搜尋結果。請選擇需要的版本。" :
+      "書庫在這一頁沒有傳回「" + label(result.query) + "」的結果。", ""];
+    lines.push("第 " + result.page + " 頁" + (result.total_pages ? "，共 " + result.total_pages + " 頁。" : "。"), "");
     result.books.forEach((book, index) => {
-      const caption = [book.title, book.author, book.publisher, book.year, book.language,
-        book.extension.toUpperCase(), book.size].filter(Boolean).map(label).join(" · ");
-      const url = discourse.baseUrl + "/t/" + post.topic_id + "/" + post.post_number +
-        "#zlibrary-edition-" + book.selection + "-" + (book.extension || "bin");
-      lines.push((index + 1) + ". [" + caption + "](" + url + ")");
+      const caption = [book.title || "未提供書名", book.author, book.translator && "譯者 " + book.translator, book.publisher,
+        book.year, book.language, book.extension.toUpperCase(), book.size].filter(Boolean).map(label).join(" · ");
+      let entry = caption + "（未提供下載識別碼）";
+      if (book.selection) {
+        const url = discourse.baseUrl + "/t/" + post.topic_id + "/" + post.post_number +
+          "#zlibrary-edition-" + book.selection + "-" + (book.extension || "bin");
+        entry = "[" + caption + "](" + url + ")";
+      }
+      lines.push((index + 1) + ". " + entry);
     });
-    if (result.has_next) lines.push("", "下一頁可回覆：" + String.fromCharCode(96) + "@" + bot + " " +
-      text(request.query, 200).replace(/\x60/g, "") + (request.site ? " --site " + request.site : "") +
-      " --page " + (result.page + 1) + String.fromCharCode(96));
+    function pageCommand(number) {
+      return String.fromCharCode(96) + "@" + bot + " " + text(result.query, 200).replace(/\x60/g, "") +
+        (request.site ? " --site " + request.site : "") + (request.extension ? " --ext " + request.extension : "") +
+        " --page " + number + String.fromCharCode(96);
+    }
+    if (result.page > 1) lines.push("", "上一頁可回覆：" + pageCommand(result.page - 1));
+    if (result.has_next) lines.push("", "下一頁可回覆：" + pageCommand(result.page + 1));
     return lines.join("\n");
   }
   let raw;
   if (inTopic) {
     raw = topicReply();
-    if (publicEdition && !request.chinese && (!request.extension || request.extension === "epub")) {
-      raw += "\n\n[" + publicEdition.author + "《" + publicEdition.title + "》英文原著 EPUB（" +
-        publicEdition.publisher + "）](" + publicEdition.epub + ")";
-    }
   } else {
     const payload = { marker: resultMark, nonce: request.nonce, result };
     raw = resultMark + "\n\n```json\n" +
@@ -505,7 +514,7 @@ function processBookPost(post) {
   discourse.setCustomField("post", post.id, receiptKey, "done");
   if (inTopic) {
     const search = request.op === "search" && request.query && !request.invalid && request.query.length <= 200 ?
-      { query: request.query, page: request.page, site: request.site, extension: request.extension, chinese: request.chinese } : request.previous;
+      { query: request.query, page: request.page, site: request.site, extension: request.extension } : request.previous;
     bookReplyIndex(post.topic_id, reply, post, search);
   }
   return "handled";

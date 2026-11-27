@@ -15,6 +15,9 @@ en:
     searching: Searching…
     downloading: Downloading the selected edition…
     results: Results for “%{query}”
+    untitled: Title unavailable
+    translator: Translated by %{name}
+    no_download: Download unavailable
     no_results: No matching editions were found on this page.
     download: Download selected edition
     pages: Result pages

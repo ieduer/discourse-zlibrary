@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const tool = JSON.parse(
   readFileSync(new URL("../native/forum-book-tool.json", import.meta.url)),
@@ -97,7 +98,10 @@ function site(activeScript = script) {
         baseUrl: "https://forum.example",
         getPost: (i) => posts.get(i),
         getCustomField: (_t, i, k) => fields.get(i + ":" + k),
-        setCustomField: (_t, i, k, v) => fields.set(i + ":" + k, v),
+        setCustomField: (_t, i, k, v) => {
+          if (v.length > 1024) throw new Error("Value too long (max 1024 characters)");
+          return fields.set(i + ":" + k, v);
+        },
         createPost: (p) => {
           replies.push(p);
           return { success: true, post_id: 1000 + id };
@@ -117,7 +121,8 @@ function site(activeScript = script) {
           return { short_url: "upload://abcd." + name.split(".").at(-1) };
         },
       },
-      crypto: { base64Decode: (s) => Buffer.from(s, "base64").toString("latin1") },
+      crypto: { base64Decode: (s) => Buffer.from(s, "base64").toString("latin1"),
+        sha256: s => createHash("sha256").update(s).digest("hex") },
     };
     const outcome = activeScript.runInNewContext(sandbox);
     if (outcome === "ignored") return null;
@@ -136,7 +141,7 @@ test("searches for a forum member in a private topic; handles filters, paginatio
   assert.equal(result.has_next, true);
   assert.deepEqual(
     result.books.map((b) => b.extension),
-    ["epub", "pdf"],
+    ["pdf", "epub"],
   );
   assert.match(s.calls[1].options.body, /extensions%5B%5D=pdf/);
   assert.equal(s.calls.length, 2);
@@ -147,7 +152,7 @@ test("searches for a forum member in a private topic; handles filters, paginatio
 });
 test("selects the correct edition, and the private forum attachment preserves its exact bytes", () => {
   const s = site();
-  const selection = s.search().books[1].selection;
+  const selection = s.search().books[0].selection;
   const result = s.run("download", { selection });
   assert.equal(result.delivery, "forum");
   assert.equal(result.download_url, "/uploads/short-url/abcd.pdf");
@@ -158,7 +163,7 @@ test("selects the correct edition, and the private forum attachment preserves it
 });
 test("refuses a selection copied to another account or conversation", () => {
   const s = site(),
-    key = s.search().books[1].selection;
+    key = s.search().books[0].selection;
   assert.equal(s.run("download", { selection: key }, 4, 10).error, "selection");
   assert.equal(s.run("download", { selection: key }, 2, 20).error, "selection");
   assert.equal(s.calls.length, 2);
@@ -175,7 +180,7 @@ test("skips regular topics, unrelated features, unauthenticated contexts and bad
 test("returns the CDN file URL without sending it the forum book account", () => {
   const s = site();
   s.state.link = "https://files.example/download/per-file-token";
-  const key = s.search().books[1].selection,
+  const key = s.search().books[0].selection,
     res = s.run("download", { selection: key });
   assert.equal(res.download_url, s.state.link);
   assert.equal(res.delivery, "provider");
@@ -187,7 +192,7 @@ test("stops on login rejection, quota and incomplete book bytes", () => {
   s.state.login = false;
   assert.equal(s.search().error, "account");
   s.state.login = true;
-  const key = s.search().books[1].selection;
+  const key = s.search().books[0].selection;
   s.state.quota = true;
   assert.equal(s.run("download", { selection: key }).error, "quota");
   s.state.quota = false;
@@ -203,14 +208,14 @@ test("never publishes a credential in a file URL or copies an unknown or oversiz
   ]) {
     const s = site();
     s.state.link = link;
-    const key = s.search().books[1].selection;
+    const key = s.search().books[0].selection;
     assert.ok(s.run("download", { selection: key }).error);
     assert.doesNotMatch(s.replies.at(-1).raw, /fixture-long-account-session-key/);
   }
   for (const size of [undefined, 20 * 1024 * 1024]) {
     const s = site();
     s.state.size = size;
-    const key = s.search().books[1].selection;
+    const key = s.search().books[0].selection;
     assert.equal(s.run("download", { selection: key }).delivery, "provider");
     assert.equal(s.uploads.length, 0);
   }
@@ -219,26 +224,26 @@ test("never publishes a credential in a file URL or copies an unknown or oversiz
 test("downloads a small protected same-origin file without publishing its account-bearing URL", () => {
   const s = site();
   s.state.link = "/file/sample?remix_userkey=fixture-long-account-session-key";
-  const key = s.search().books[1].selection;
+  const key = s.search().books[0].selection;
   const delivered = s.run("download", { selection: key });
   assert.equal(delivered.delivery, "forum");
   assert.doesNotMatch(JSON.stringify(delivered), /remix|fixture-long/);
 });
 
-test("a real mention lists distinct editions EPUB first without resolving any download", () => {
+test("a real mention lists distinct editions in provider order without resolving any download", () => {
   const s = site();
   const mention = (raw) => s.run(null, {}, 2, 90, { archetype: "regular", raw });
   assert.equal(mention("@AnotherBot 試讀本"), null);
   assert.equal(mention("> @ZlibBot 試讀本"), null);
   const reply = mention("@ZlibBot 搜尋 試讀本");
   assert.equal(s.replies.at(-1).username, "ZlibBot");
-  assert.match(reply, /1900.*EPUB[\s\S]+1910.*PDF/);
-  assert.match(reply, /#zlibrary-edition-3\.0-epub/);
+  assert.match(reply, /1910.*PDF[\s\S]+1900.*EPUB/);
+  assert.match(reply, /#zlibrary-edition-3\.1-epub/);
   assert.doesNotMatch(reply, /test-password|fixture-long|downloadLink|https:\/\/books\.example/);
   assert.deepEqual(s.calls.map(c => c.path), ["/eapi/user/login", "/eapi/book/search"]);
   assert.equal(s.run("download", { selection: "3.0", source_topic_id: 90 }, 3, 10).error, "selection");
   assert.equal(s.run("download", { selection: "3.0", source_topic_id: 91 }, 2, 10).error, "selection");
-  assert.equal(s.run("embed", { selection: "3.1", source_topic_id: 90 }, 2, 10).error, "selection");
+  assert.equal(s.run("embed", { selection: "3.0", source_topic_id: 90 }, 2, 10).error, "selection");
   assert.equal(s.calls.length, 2);
 });
 
@@ -253,7 +258,7 @@ test("only the confirmed EPUB is fetched and cross-domain delivery never receive
   s.cfg.file_path = "/v2/book/{id}/{hash}";
   s.run(null, {}, 5, 99, {archetype: "regular", raw: "@BookScout 試讀本 --page 2"});
   assert.match(s.calls[1].options.body, /page=2/);
-  const book = s.run("embed", { selection: "1.0", source_topic_id: 99 }, 5, 10);
+  const book = s.run("embed", { selection: "1.1", source_topic_id: 99 }, 5, 10);
   assert.equal(book.short_url, "upload://abcd.epub");
   assert.deepEqual(s.uploads[0].bytes, s.state.file);
   const [login,fileLookup,transfer] = s.calls.slice(-3);
@@ -343,7 +348,7 @@ test("search tries each host once after a DNS or TCP connect failure and pins th
           "Failed to open TCP connection to z-library.website:443 (Connection timed out - connect(2))",
       );
     };
-    const selection = s.search().books[1].selection;
+    const selection = s.search().books[0].selection;
     const firstCalls = failedPath === loginPath ? [loginPath] : [loginPath, searchPath];
     assert.deepEqual(s.calls.map(c => [c.origin, c.path]), [
       ...firstCalls.map(path => [mirror, path]), [original, loginPath], [original, searchPath],
@@ -433,7 +438,7 @@ test("an invalid ordered list sends no credentials, even with a valid legacy ori
 
 test("only single-origin installations can reuse a pre-upgrade selection with an unknown source", () => {
   const s = site();
-  const selection = s.search().books[1].selection;
+  const selection = s.search().books[0].selection;
   const cacheKey = "1:book_library_editions_v1";
   const cached = JSON.parse(s.fields.get(cacheKey));
   delete cached.origin;
@@ -449,7 +454,7 @@ test("file requests stay on their selected host and a failed issuance is never r
   for (const failedPath of [loginPath, "/eapi/book/53/def/file", "/file/sample"]) {
     const s = site();
     s.cfg.origins = [mirror, original];
-    const selection = s.search().books[1].selection;
+    const selection = s.search().books[0].selection;
     s.cfg.origins = [original, mirror];
     s.state.onRequest = ({ path }) => {
       if (path === failedPath) throw new Error("FinalDestination: lookup failed");
@@ -465,143 +470,13 @@ test("file requests stay on their selected host and a failed issuance is never r
 test("replaying a handled post neither repeats a file request nor publishes another reply", () => {
   const s = site();
   s.cfg.origins = [mirror, original];
-  const selection = s.search().books[1].selection;
+  const selection = s.search().books[0].selection;
   assert.equal(s.run("download", { selection }).delivery, "forum");
   const count = s.calls.length;
   assert.equal(s.run("download", { selection }, 2, 10, { existingPostId: 2 }), "already handled");
   assert.equal(s.calls.length, count);
   assert.equal(s.replies.length, 2);
   assert.equal(s.uploads.length, 1);
-});
-
-function contextualSearch({
-  command = "这篇出自哪本书", title = "盐",
-  raw = "A passage that must stay on the forum.\n\n作者：伊萨克·巴别尔 【1894-1940】\n\n译者： 戴骢",
-  parent, replyTo, catalog = [], wikidata = [], publicSource = true, hidden = false, rejectLogin = false,
-} = {}) {
-  const topic = { id: 750, first_post_id: 82, title, archetype: "regular" };
-  const first = { id: 82, topic_id: 750, topic, post_number: 1, post_type: 1, raw, hidden };
-  const target = { id: 105, topic_id: 750, topic, post_number: 5, post_type: 1, raw: parent };
-  const mention = { id: 108, topic_id: 750, topic, post_number: 6, post_type: 1, user_id: 17,
-    reply_to_post_number: replyTo, raw: ("@ZlibBot " + command).trim() };
-  const posts = new Map([first, target, mention].map(p => [p.id, p]));
-  const requests = [], fields = new Map();
-  let reply;
-  const response = (data, status = 200) => ({ status, body: JSON.stringify(data) });
-  const sandbox = {
-    context: { post_id: 108, topic_id: 750, user_id: 17, feature_name: "ai_tool_action" },
-    discourse: {
-      baseUrl: "https://forum.example",
-      getPost: id => posts.get(id),
-      getTopic: id => id === 750 ? topic : null,
-      getCustomField: (_kind, _id, key) => fields.get(key),
-      setCustomField: (_kind, _id, key, value) => fields.set(key, value),
-      createPost: p => { reply = p.raw; return { success: true }; },
-    },
-    secrets: { get: () => JSON.stringify({ origin: "https://books.example", email: "catalog@example.invalid", password: "not-public" }) },
-    http: {
-      get: (url, options) => {
-        requests.push({ url, headers: options.headers });
-        if (url.startsWith("https://query.wikidata.org/sparql?")) return response({ results: { bindings: wikidata } });
-        if (publicSource && url === "https://forum.example/posts/by_number/750/1.json") return response(first);
-        if (publicSource && parent && url === "https://forum.example/posts/by_number/750/5.json") return response(target);
-        return response({}, 404);
-      },
-      post: (url, options) => {
-        const params = new URLSearchParams(options.body);
-        requests.push({ url, query: params.get("message"), page: params.get("page") });
-        if (url.endsWith("/user/login")) return rejectLogin ? response({ success: 0 }, 401)
-          : response({ success: 1, user: { id: 7, remix_userkey: "private-fixture-key" } });
-        if (url.endsWith("/book/search")) return response({ success: 1, books: catalog.map((row, i) => ({
-          id: i + 21, hash: "a" + i, ...row,
-        })) });
-        throw new Error("Unexpected request");
-      },
-    },
-  };
-  script.runInNewContext(sandbox);
-  return { reply, fields, requests, searches: requests.filter(r => r.query) };
-}
-
-test("a bare mention and the original-post question resolve Salt to the collection and credit matching editions first", () => {
-  const catalog = [
-    { title: "军事史话与红色骑兵军", author: "巴别尔", extension: "epub" },
-    { title: "骑兵军", author: "无关作者", extension: "epub" },
-    { title: "骑兵军", author: "巴别尔", extension: "epub" },
-    { title: "红色骑兵军", author: "伊萨克·巴别尔, 戴骢", extension: "pdf", year: 2012 },
-    { title: "骑兵军", author: "巴别尔；孙越译", extension: "pdf", year: 1992 },
-    { title: "研究报告：骑兵军", author: "巴别尔", extension: "epub" },
-  ];
-  for (const command of ["", "找一下原帖这本书", "请帮我找一下原帖这篇小说收在哪本书里，优先找原文标注译者的中文版。"]) {
-    const s = contextualSearch({ command, catalog });
-    assert.deepEqual(s.searches.map(r => r.query), ["骑兵军"]);
-    assert.equal(s.requests.length, 2);
-    assert.match(s.reply, /〈盐〉收在《骑兵军》/);
-    assert.match(s.reply, /2004.*2003.*works_and_criticism/);
-    assert.match(s.reply, /2012 · PDF[\s\S]+巴别尔 · EPUB[\s\S]+1992 · PDF/);
-    assert.doesNotMatch(s.reply, /军事史话|无关作者|研究报告|zlibrary-edition|private-fixture/);
-    assert.ok(!s.fields.has("book_library_editions_v1"));
-  }
-  const outage = contextualSearch({ rejectLogin: true });
-  assert.match(outage.reply, /〈盐〉收在《骑兵军》/);
-  assert.match(outage.reply, /account/);
-});
-
-test("source context stays tied to the selected public post; explicit titles, ISBNs and ambiguity are handled independently", () => {
-  const s = contextualSearch({ replyTo: 5, parent: "作者：A. Author\n选自《Collected Letters》" });
-  assert.equal(s.searches[0].query, "Collected Letters");
-  assert.match(s.reply, /WorldCat|worldcat/);
-  assert.doesNotMatch(s.reply, /骑兵军/);
-  assert.deepEqual(s.requests[0].headers.Accept, "application/json");
-  assert.equal(Object.keys(s.requests[0].headers).length, 1);
-  const op = contextualSearch({ replyTo: 5, parent: "选自《Another book》", command: "请找原帖这篇的出处" });
-  assert.equal(op.searches[0].query, "骑兵军");
-  const explicit = contextualSearch({ command: "请帮我找一下《小王子》好吗？" });
-  assert.equal(explicit.searches[0].query, "小王子");
-  const isbn = contextualSearch({ title: "書目資料", raw: "ISBN：978-1-78227-093-5", command: "找一下原帖这本书" });
-  assert.equal(isbn.searches[0].query, "9781782270935");
-  for (const input of [
-    { replyTo: 5, parent: "这两篇分别选自《甲》和《乙》。又有一篇选自《丙》。" },
-    { replyTo: 5, parent: "引文", publicSource: false },
-    { hidden: true },
-    { command: "《另一篇》出自哪本书？" },
-  ]) {
-    const unresolved = contextualSearch(input);
-    assert.match(unresolved.reply, /無法確定/);
-    assert.equal(unresolved.searches.length, 0);
-  }
-});
-
-function wikidataRow(workName, writerName, collection, collectionId = "Q459592") {
-  const value = text => ({ value: text });
-  const entity = id => value("http://www.wikidata.org/entity/" + id);
-  return { work: entity("Q1216839"), creator: entity("Q6882"), collection: entity(collectionId), collectionLabel: value(collection),
-    workName: value(workName), writerName: value(writerName) };
-}
-
-test("an uncatalogued story resolves via a single exact title/author and book relationship; inaccessible or conflicting evidence is rejected", () => {
-  const title = "The Dead", author = "James Joyce", raw = "Sample narrative, withheld from public services.\nAuthor: James Joyce";
-  const row = wikidataRow(title, author, "Dubliners");
-  const found = contextualSearch({ title, raw, wikidata: [row] });
-  assert.deepEqual(found.searches.map(r => r.query), ["Dubliners"]);
-  assert.match(found.reply, /James Joyce的〈The Dead〉收在《Dubliners》/);
-  assert.match(found.reply, /wikidata.org\/wiki\/Q1216839/);
-  assert.ok(!found.fields.has("book_library_editions_v1"));
-  const query = new URL(found.requests[1].url).searchParams.get("query");
-  assert.match(query, /wdt:P50/);
-  assert.match(query, /wdt:P361\|wdt:P1433/);
-  assert.match(query, /wdt:P7937/);
-  assert.doesNotMatch(query, /withheld|catalog@example|not-public/);
-  assert.equal(found.requests.filter(r => r.url.startsWith("https://query.wikidata.org/")).length, 1);
-  for (const wikidata of [[], [row, wikidataRow(title, author, "Other Collection", "Q999")],
-    [wikidataRow(title, "Another Writer", "Dubliners")], [wikidataRow("Different story", author, "Dubliners")]]) {
-    const miss = contextualSearch({ title, raw, wikidata });
-    assert.equal(miss.searches.length, 0);
-    assert.match(miss.reply, /無法確定/);
-  }
-  const restricted = contextualSearch({ title, raw, wikidata: [row], publicSource: false });
-  assert.equal(restricted.requests.length, 1);
-  assert.match(restricted.requests[0].url, /^https:\/\/forum\.example\//);
 });
 
 function bookConversation() {
@@ -657,7 +532,7 @@ function bookConversation() {
   return { run, index, create, queries, replies, posts, first, older, nudge, fields };
 }
 
-test("the original member's unmentioned nudge in 14538/4 retries the verified legacy book request and returns the original English EPUB", () => {
+test("the original member's unmentioned nudge in 14538/4 repeats the original keyword search and displays every returned edition", () => {
   for (const suppressReplyUser of [false, true]) {
     const forum = bookConversation();
     assert.equal(forum.index(), "indexed");
@@ -669,8 +544,8 @@ test("the original member's unmentioned nudge in 14538/4 retries the verified le
     assert.equal(answer.reply_to_post_number, 4);
     assert.match(answer.raw, /Austen, Jane/);
     assert.match(answer.raw, /#zlibrary-edition-255321\.0-epub/);
-    assert.match(answer.raw, /standardebooks\.org\/ebooks\/jane-austen\/pride-and-prejudice\/downloads\/jane-austen_pride-and-prejudice\.epub/);
-    assert.doesNotMatch(answer.raw, /A Retell/);
+    assert.match(answer.raw, /A Reteller[\s\S]+Austen, Jane[\s\S]+A Retelling/);
+    assert.doesNotMatch(answer.raw, /standardebooks|upload:\/\//);
     assert.equal(forum.run(forum.nudge), "already handled");
     assert.equal(forum.queries.length, 1);
     assert.equal(forum.replies.length, 1);
@@ -686,7 +561,7 @@ test("replies retain their own thread's query and filters and a new title starts
   f.run(otherMember);
   assert.equal(f.queries.at(-1).message, "Pride and Prejudice");
   assert.equal(f.queries.at(-1)["extensions[]"], "pdf");
-  assert.match(f.replies.at(-1).raw, new RegExp("#zlibrary-edition-" + otherMember.id + "\\.0-pdf"));
+  assert.match(f.replies.at(-1).raw, new RegExp("#zlibrary-edition-" + otherMember.id + "\\.1-pdf"));
   assert.doesNotMatch(f.replies.at(-1).raw, /standardebooks/);
   f.run(f.create("下一頁", f.replies.at(-1)));
   assert.equal(f.queries.at(-1).page, "2");
@@ -718,4 +593,77 @@ test("unrelated replies, cross-topic IDs, hidden parents and the bot's posts do 
   assert.equal(f.run(f.nudge), "ignored");
   assert.equal(f.queries.length, 0);
   assert.equal(f.replies.length, 0);
+});
+
+test("page results keep the provider's exact order, duplicates, and rows without download IDs; only the reader's chosen row fetches a file", () => {
+  const s = site();
+  const keywords = "Water Clock";
+  const base = { title:keywords, author:"Ellis, Casey", language:"English", filesize:310 };
+  const pages = [
+    [{ ...base, id:10, hash:"a", extension:"pdf" }, { ...base, id:11, hash:"b", author:"Another Writer", extension:"epub" },
+      { ...base, id:10, hash:"a", extension:"pdf" }, { title:"Catalogue-only record", publisher:"Book Press" },
+      { title:"Unrelated title", author:"Unrelated writer", id:14, hash:"e", extension:"mobi" }],
+    Array.from({ length:12 }, (_, i) => ({ ...base, title: "Long edition title ".repeat(10) + i, id:20+i,
+      hash:"ed"+i, extension:i===11 ? "pdf" : "epub" })),
+  ];
+  s.state.onRequest = ({path,options}) => {
+    if (path === searchPath) {
+      const params = new URLSearchParams(options.body);
+      assert.equal(params.get("message"), keywords);
+      assert.equal(params.get("limit"), "10");
+      assert.deepEqual([...params.keys()].sort(), ["limit","message","page"]);
+      const page=Number(params.get("page"));
+      return {status:200,body:JSON.stringify({ success:1,books:pages[page-1],pagination:{current:page,total_pages:2} })};
+    }
+    if (path === "/eapi/book/31/ed11/file") return {status:200,body:JSON.stringify({ success:1,file:{downloadLink:"https://files.example/selected-edition.pdf"} })};
+  };
+  const a = s.run("search",{query:keywords,page:1});
+  assert.deepEqual(a.books.map(b=>[b.title,b.author,b.extension]),pages[0].map(b=>[b.title,b.author||"",b.extension||""]));
+  assert.equal(a.books[3].selection,null);
+  assert.equal(a.books[4].selection,"1.4");
+  assert.ok(a.has_next);
+  const b = s.run("search",{query:keywords,page:2});
+  assert.deepEqual(b.books.map(row=>row.title),pages[1].map(row=>row.title));
+  assert.equal(b.page,2);
+  assert.equal(b.total_pages,2);
+  assert.equal(b.has_next,false);
+  assert.equal(b.books[11].selection,"2.11");
+  assert.equal(new Set(b.books.map(row=>row.row_key)).size,12);
+  assert.ok([...s.fields.values()].every(value=>value.length<=1024));
+  assert.equal(JSON.parse(s.fields.get("2:book_library_editions_v1")).count,12);
+  assert.deepEqual(s.calls.map(c=>c.path),[loginPath,searchPath,loginPath,searchPath]);
+  assert.equal(s.run("download",{selection:"1.3"}).error,"selection");
+  assert.equal(s.run("download",{selection:"2.11"},4).error,"selection");
+  assert.equal(s.run("download",{selection:"2.11"}).download_url,"https://files.example/selected-edition.pdf");
+  assert.deepEqual(s.calls.map(c=>c.path),[loginPath,searchPath,loginPath,searchPath,loginPath,"/eapi/book/31/ed11/file"]);
+  assert.equal(s.uploads.length,0);
+});
+
+test("a public reply renders unselectable metadata and a later downloadable row at its original position", () => {
+  const s=site();
+  s.state.onRequest=({path})=>path===searchPath ? {status:200,body:JSON.stringify({success:1,books:[
+    { title:"Report only", href:"https://unrelated.example/book/18/aaaa" },
+    { title:"", author:"Author without a title" },
+    { title:"Recovered by provider reference", href:"https://books.example/book/88/hash88/title", extension:"pdf" },
+    { title:"Final listing", id:"20",hash:"ccc",extension:"epub" },
+  ],pagination:{current:0,total_pages:3}})} : undefined;
+  const text=s.run(null,{},2,90,{archetype:"regular",raw:"@ZlibBot any keywords --page 2"});
+  assert.match(text,/第 2 頁，共 3 頁/);
+  assert.match(text,/1\. Report only（未提供下載識別碼）/);
+  assert.match(text,/2\. 未提供書名 · Author without a title/);
+  assert.match(text,/3\. \[Recovered by provider reference · PDF\].*1\.2-pdf/);
+  assert.match(text,/4\. \[Final listing · EPUB\].*1\.3-epub/);
+  assert.match(text,/--page 1/);
+  assert.match(text,/--page 3/);
+  assert.deepEqual(s.calls.map(c=>c.path),[loginPath,searchPath]);
+});
+
+test("an empty provider page stays empty and its declared next page remains reachable", () => {
+  const s=site();
+  s.state.onRequest=({path})=>path===searchPath ? {status:200,body:JSON.stringify({success:1,books:[],pagination:{current:1,total_pages:2}})} : undefined;
+  const reply=s.run(null,{},2,90,{archetype:"regular",raw:"@ZlibBot literal --ext epub"});
+  assert.match(reply,/沒有傳回「literal」/);
+  assert.match(reply,/@ZlibBot literal --ext epub --page 2/);
+  assert.doesNotMatch(reply,/zlibrary-edition/);
+  assert.deepEqual(s.calls.map(c=>c.path),[loginPath,searchPath]);
 });

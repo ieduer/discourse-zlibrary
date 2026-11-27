@@ -72,9 +72,12 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
           expect(options[:headers].fetch("remix-userkey")).to eq("private-fixture-session")
           query = URI.decode_www_form(options.fetch(:body)).to_h.fetch("message")
           case query
-          when "骑兵军"
-            { success: 1, books: [{ id: 61, hash: "a61", title: "红色骑兵军", author: "巴别尔, 戴骢", year: 2012, extension: "epub" },
-                                  { id: 62, hash: "a62", title: "无关书名", author: "其他作者", extension: "epub" }] }
+          when "盐"
+            { success: 1, pagination: { current: 1, total_pages: 2 }, books: [
+              { id: 61, hash: "a61", title: "盐的历史", author: "甲", extension: "pdf" },
+              { title: "盐", author: "另一位作者", language: "English" },
+              { id: 62, hash: "a62", title: "食盐", author: "乙", extension: "epub" },
+            ] }
           when "試讀本"
             { success: 1, books: [{ id: 53, hash: "def", title: "試讀本", year: 1910, extension: "pdf" },
                                   { id: 51, hash: "abc", title: "試讀本", year: 1900, extension: "epub", filesize: epub.bytesize }] }
@@ -139,7 +142,7 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     PostCreator.create!(member, topic_id: topic.id, raw: "@ZlibBot 試讀本", skip_validations: true)
     process_book_request(public_auto)
     answer = topic.posts.find_by!(user_id: bot.id)
-    expect(answer.raw).to match(/1900.*EPUB.*1910.*PDF/m)
+    expect(answer.raw).to match(/1910.*PDF.*1900.*EPUB/m)
     expect(paths).not_to include("/eapi/book/51/abc/file")
     direct = PostCreator.create!(member, topic_id: topic.id, reply_to_post_number: answer.post_number, raw: "你要相信自己：）", skip_validations: true)
     before = paths.count("/eapi/book/search")
@@ -158,13 +161,14 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
 
     story_topic = Fabricate(:topic, user: member, category: topic.category)
     story_topic.update_column(:title, "盐")
-    Fabricate(:post, topic: story_topic, user: member, raw: "測試摘錄。\n\n作者：伊萨克·巴别尔 【1894-1940】\n\n译者： 戴骢")
-    PostCreator.create!(member, topic_id: story_topic.id, raw: "@ZlibBot 请帮我找一下原帖这篇小说收在哪本书里，优先找原文标注译者的中文版。", skip_validations: true)
+    Fabricate(:post, topic: story_topic, user: member, raw: "Forum excerpt.")
+    PostCreator.create!(member, topic_id: story_topic.id, raw: "@ZlibBot 为我找到盐的英文版，无删减版本", skip_validations: true)
+    before_downloads = paths.grep(%r{/file$})
     process_book_request(public_auto)
     answer = story_topic.posts.find_by!(user_id: bot.id)
-    expect(answer.raw).to include("〈盐〉收在《骑兵军》", "巴别尔, 戴骢", "2012", "works_and_criticism.pdf")
-    expect(answer.raw).not_to match(/无关书名|zlibrary-edition|private-fixture-session/)
-    visit(story_topic.relative_url)
-    expect(page).to have_css(".topic-post .cooked", text: "〈盐〉收在《骑兵军》")
+    expect(answer.raw).to match(/盐的历史.*另一位作者.*食盐/m)
+    expect(answer.raw.scan("#zlibrary-edition-").size).to eq(2)
+    expect(paths.grep(%r{/file$})).to eq(before_downloads)
+    expect(hosts.uniq - ["z-lib.gd", "z-library.website", "files.example"]).to be_empty
   end
 end

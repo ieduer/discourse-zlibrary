@@ -15,6 +15,9 @@ zh_TW:
     searching: 正在搜尋…
     downloading: 正在下載所選版本…
     results: "「%{query}」的搜尋結果"
+    untitled: 未提供書名
+    translator: 譯者 %{name}
+    no_download: 未提供下載
     no_results: 這一頁沒有找到符合條件的版本。
     download: 下載所選版本
     pages: 搜尋結果分頁
