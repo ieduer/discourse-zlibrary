@@ -8,6 +8,7 @@ en:
   zlibrary:
     title: Book library
     query: Title, author or ISBN
+    source_hint: To choose a source, append --site 1 or --site 2
     format: Format
     any_format: All formats
     search: Search
@@ -35,7 +36,7 @@ en:
       too_large: This file exceeds the download limit of %{limit} MiB.
       incomplete: The transfer was incomplete. Please try again later.
       selection: This selection has expired or belongs to a different member. Search again and select the edition.
-      query: Enter a search term of up to 200 characters and select a valid format and page.
+      query: Enter a search term of up to 200 characters and check the format, page and source number.
       membership: Sign in to the forum and try again.
       file_host: The file host is not configured for this book service.
       pending: The forum did not reply in time. Check the private conversation for its response.

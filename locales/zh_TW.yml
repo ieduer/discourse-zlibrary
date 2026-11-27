@@ -8,6 +8,7 @@ zh_TW:
   zlibrary:
     title: 書庫
     query: 書名、作者或 ISBN
+    source_hint: 可在搜尋詞後加上 --site 1 或 --site 2 選擇站點
     format: 檔案格式
     any_format: 全部格式
     search: 搜尋
@@ -35,7 +36,7 @@ zh_TW:
       too_large: 這個檔案超過 %{limit} MiB 的下載上限。
       incomplete: 檔案傳輸不完整，請稍後再試。
       selection: 這次選擇已過期或屬於其他會員，請重新搜尋並選擇版本。
-      query: 搜尋詞須為 1 至 200 個字元，請確認格式和頁碼也有效。
+      query: 搜尋詞須為 1 至 200 個字元，請確認格式、頁碼及站點編號均有效。
       membership: 請登入論壇後再試。
       file_host: 書庫服務尚未設定這個檔案網域。
       pending: 論壇尚未回覆，請在個人訊息中查看此次請求。

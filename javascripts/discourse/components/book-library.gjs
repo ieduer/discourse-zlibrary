@@ -116,7 +116,7 @@ export default class BookLibrary extends Component {
       if (!Array.isArray(result.books)) {
         throw new Error(t("errors.upstream"));
       }
-      this.submitted = filters;
+      this.submitted = { ...filters, query: result.query || filters.query, site: result.site };
       this.result = result;
     } catch (error) {
       this.error = error instanceof Error ? error.message : extractError(error, t("search_error"));
@@ -267,7 +267,7 @@ export default class BookLibrary extends Component {
           <form class="zlibrary__search" {{on "submit" this.search}}>
             <label class="zlibrary__query">
               <span>{{t "query"}}</span>
-              <input type="search" name="query" required maxlength="200" disabled={{this.busy}} />
+              <input type="search" name="query" required maxlength="240" placeholder={{t "source_hint"}} disabled={{this.busy}} />
             </label>
             <label>
               <span>{{t "format"}}</span>

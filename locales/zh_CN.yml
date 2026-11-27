@@ -8,6 +8,7 @@ zh_CN:
   zlibrary:
     title: 书库
     query: 书名、作者或 ISBN
+    source_hint: 可在搜索词后加上 --site 1 或 --site 2 选择站点
     format: 文件格式
     any_format: 全部格式
     search: 搜索
@@ -35,7 +36,7 @@ zh_CN:
       too_large: 这个文件超过 %{limit} MiB 的下载上限。
       incomplete: 文件传输不完整，请稍后再试。
       selection: 本次选择已过期或属于其他成员，请重新搜索并选择版本。
-      query: 搜索词应为 1 至 200 个字符，请确认格式和页码也有效。
+      query: 搜索词应为 1 至 200 个字符，请确认格式、页码及站点编号均有效。
       membership: 请登录论坛后再试。
       file_host: 书库服务尚未配置这个文件域名。
       pending: 论坛尚未回复，请在个人消息中查看此次请求。

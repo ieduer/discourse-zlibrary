@@ -41,10 +41,11 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     Theme.find(SiteSetting.default_theme_id).child_themes << theme
     theme.update_setting(:book_inbox_group, inbox.name)
     theme.save!
-    definition = JSON.parse(File.read(File.join(root, "native/forum-book-tool.json"))).fetch("ai_tool")
+    definition = JSON.parse(File.read(File.join(root, "native/forum-book-tool-origins.json"))).fetch("ai_tool")
     tool = AiTool.create!(definition.merge("enabled" => true, "created_by_id" => Discourse.system_user.id))
     secret = Fabricate(:ai_secret, secret: JSON.generate(origin: "https://books.example", email: "fixture@example.invalid", password: "fixture-only"))
-    tool.replace_secret_bindings!([{ alias: "book_account", ai_secret_id: secret.id }])
+    origins = Fabricate(:ai_secret, secret: JSON.generate(["https://z-lib.gd", "https://z-library.website"]))
+    tool.replace_secret_bindings!([{ alias: "book_account", ai_secret_id: secret.id }, { alias: "book_origins", ai_secret_id: origins.id }])
     auto = DiscourseAutomation::Automation.create!(name: "Book library", script: "ai_tool_action", trigger: "post_created_edited", last_updated_by_id: Discourse.system_user.id, enabled: false)
     auto.upsert_field!("tool", "choices", { value: tool.id }, target: "script")
     auto.upsert_field!("action_type", "choices", { value: "created" }, target: "trigger")
@@ -53,18 +54,33 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     auto.update!(enabled: true)
 
     paths = []
+    hosts = []
     bytes = "%PDF-1.4\nForum fixture\n%%EOF\n".b
     allow(DiscourseAi::Agents::Tools::Tool).to receive(:send_http_request) do |url, **options, &callback|
-      path = URI(url).path
+      uri = URI(url)
+      path = uri.path
       paths << path
+      hosts << uri.host
+      if uri.host == "z-lib.gd"
+        raise Net::OpenTimeout, "Failed to open TCP connection to z-lib.gd|192.0.2.1.final-destination.invalid:443 (execution expired)"
+      end
       body =
         case path
         when "/eapi/user/login"
           { success: 1, user: { id: 8, remix_userkey: "private-fixture-session" } }
         when "/eapi/book/search"
           expect(options[:headers].fetch("remix-userkey")).to eq("private-fixture-session")
-          { success: 1, books: [{ id: 53, hash: "def", title: "試讀本", year: 1910, extension: "pdf" },
-                                { id: 51, hash: "abc", title: "試讀本", year: 1900, extension: "epub", filesize: epub.bytesize }] }
+          query = URI.decode_www_form(options.fetch(:body)).to_h.fetch("message")
+          case query
+          when "骑兵军"
+            { success: 1, books: [{ id: 61, hash: "a61", title: "红色骑兵军", author: "巴别尔, 戴骢", year: 2012, extension: "epub" },
+                                  { id: 62, hash: "a62", title: "无关书名", author: "其他作者", extension: "epub" }] }
+          when "試讀本"
+            { success: 1, books: [{ id: 53, hash: "def", title: "試讀本", year: 1910, extension: "pdf" },
+                                  { id: 51, hash: "abc", title: "試讀本", year: 1900, extension: "epub", filesize: epub.bytesize }] }
+          else
+            raise "Unexpected bibliographic query"
+          end
         when "/eapi/book/53/def/file"
           { success: 1, file: { downloadLink: "https://files.example/selected.pdf" } }
         when "/eapi/book/51/abc/file"
@@ -90,7 +106,8 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
       find('button[type="submit"]').click
     end
     process_book_request(auto)
-    expect(paths).to eq(["/eapi/user/login", "/eapi/book/search"])
+    expect(paths).to eq(["/eapi/user/login", "/eapi/user/login", "/eapi/book/search"])
+    expect(hosts).to eq(["z-lib.gd", "z-library.website", "z-library.website"])
     expect(page).to have_css(".zlibrary__book", count: 2)
     find(".zlibrary__book", text: "1910").click
     expect(paths.grep(%r{/file$})).to be_empty
@@ -118,15 +135,19 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     public_auto.upsert_field!("tool", "choices", { value: tool.id }, target: "script")
     public_auto.upsert_field!("action_type", "choices", { value: "created" }, target: "trigger")
     public_auto.upsert_field!("restricted_archetype", "choices", { value: "public" }, target: "trigger")
-    public_auto.upsert_field!("post_features", "choices", { value: ["with_links"] }, target: "trigger")
     public_auto.update!(enabled: true)
     PostCreator.create!(member, topic_id: topic.id, raw: "@ZlibBot 試讀本", skip_validations: true)
     process_book_request(public_auto)
     answer = topic.posts.find_by!(user_id: bot.id)
     expect(answer.raw).to match(/1900.*EPUB.*1910.*PDF/m)
     expect(paths).not_to include("/eapi/book/51/abc/file")
+    direct = PostCreator.create!(member, topic_id: topic.id, reply_to_post_number: answer.post_number, raw: "你要相信自己：）", skip_validations: true)
+    before = paths.count("/eapi/book/search")
+    process_book_request(public_auto)
+    expect(paths.count("/eapi/book/search")).to eq(before + 1)
+    expect(topic.posts.find_by!(user_id: bot.id, reply_to_post_number: direct.post_number).raw).to include("試讀本", "EPUB")
     visit(topic.relative_url)
-    find("a[href*='#zlibrary-edition-'][href$='-epub']").click
+    find("#post_#{answer.post_number} a[href*='#zlibrary-edition-'][href$='-epub']").click
     expect(page).to have_css(".zlibrary-embed")
     expect(paths).not_to include("/eapi/book/51/abc/file")
     find(".zlibrary-embed").click
@@ -134,5 +155,16 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     find("#reply-control button.create").click
     expect(page).to have_css(".topic-post .cooked a.attachment", text: /試讀本\.epub/)
     expect(Upload.find_by!(sha1: Digest::SHA1.hexdigest(epub)).extension).to eq("epub")
+
+    story_topic = Fabricate(:topic, user: member, category: topic.category)
+    story_topic.update_column(:title, "盐")
+    Fabricate(:post, topic: story_topic, user: member, raw: "測試摘錄。\n\n作者：伊萨克·巴别尔 【1894-1940】\n\n译者： 戴骢")
+    PostCreator.create!(member, topic_id: story_topic.id, raw: "@ZlibBot 请帮我找一下原帖这篇小说收在哪本书里，优先找原文标注译者的中文版。", skip_validations: true)
+    process_book_request(public_auto)
+    answer = story_topic.posts.find_by!(user_id: bot.id)
+    expect(answer.raw).to include("〈盐〉收在《骑兵军》", "巴别尔, 戴骢", "2012", "works_and_criticism.pdf")
+    expect(answer.raw).not_to match(/无关书名|zlibrary-edition|private-fixture-session/)
+    visit(story_topic.relative_url)
+    expect(page).to have_css(".topic-post .cooked", text: "〈盐〉收在《骑兵军》")
   end
 end
