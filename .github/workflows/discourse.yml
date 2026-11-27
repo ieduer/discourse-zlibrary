@@ -55,10 +55,17 @@ jobs:
           pnpm install --frozen-lockfile
           bin/rake db:create db:migrate
       - name: Test the book service
+        id: protocol
         run: |
           node --test themes/discourse-zlibrary/test/worker.test.mjs
           bin/rake assets:precompile:asset_processor assets:precompile:pretty_text
+      - name: Import the public Git URL through the Discourse admin API
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          THEME_REVISION: ${{ github.sha }}
+        run: bin/rails runner themes/discourse-zlibrary/test/admin_import.rb
       - name: Build the forum UI and test the browser download
+        if: "!cancelled() && steps.protocol.outcome == 'success'"
         run: |
           pnpm playwright-install
           DISCOURSE_DOWNLOAD_PRE_BUILT_ASSETS=1 script/assemble_ember_build.rb

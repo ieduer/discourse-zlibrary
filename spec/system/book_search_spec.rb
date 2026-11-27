@@ -25,11 +25,15 @@ RSpec.describe "Forum Book Library theme component", type: :system do
     page.driver.with_playwright_page do |browser|
       browser.route("**/z-library-api/**", lambda do |route, request|
         data = { forumServer: forum_server,
-                 cookie: request.all_headers.fetch("cookie", ""), operation: URI(request.url).path.split("/").last,
+                 forumHost: URI(request.url).authority, cookie: request.all_headers.fetch("cookie", ""), operation: URI(request.url).path.split("/").last,
                  body: JSON.parse(request.post_data) }
         output, errors, status = Open3.capture3("node", File.join(component_root, "test/browser-worker.mjs"), stdin_data: JSON.generate(data))
         raise errors unless status.success?
         result = JSON.parse(output)
+        if result["status"] != 200
+          message = JSON.parse(Base64.strict_decode64(result.fetch("body"))).fetch("error")
+          warn "Fixture #{data[:operation]} returned #{result['status']} #{message}, membership #{result['membership']}"
+        end
         file_paths << result["filePath"] if result["filePath"]
         route.fulfill(status: result.fetch("status"), headers: result.fetch("headers"), body: Base64.strict_decode64(result.fetch("body")))
       end)
