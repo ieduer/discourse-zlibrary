@@ -1,6 +1,6 @@
 plugins:
   zlibrary_enabled:
-    default: true
+    default: false
     client: true
   zlibrary_max_download_mb:
     default: 128

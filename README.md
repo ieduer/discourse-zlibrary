@@ -32,7 +32,8 @@
              - git -C discourse-zlibrary checkout --detach REVIEWED_COMMIT_SHA
    ```
 
-4. 依論壇的正常發布程序重建應用程式容器。標準單容器安裝在 `/var/discourse` 執行 `./launcher rebuild app`。用一般會員登入後開啟側欄「書庫」，也可直接進入 `/z-library`。搜尋一本已知有權下載的書，選定版本，再核對下載的檔名、格式與檔案內容。
+4. 依論壇的正常發布程序重建應用程式容器。標準單容器安裝在 `/var/discourse` 執行 `./launcher rebuild app`。外掛預設停用，可先安裝，再補上第 2 步的帳號設定。管理員確認設定後，在論壇後台開啟 `zlibrary_enabled`。
+5. 用一般會員登入後開啟側欄「書庫」，也可直接進入 `/z-library`。搜尋一本已知有權下載的書，選定版本，再核對下載的檔名、格式與檔案內容。
 
 ## 設定及維護
 
