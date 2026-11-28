@@ -4,6 +4,20 @@ import { i18n } from "discourse-i18n";
 import BookLibrary from "../components/book-library";
 import BookPostPages from "../components/book-post-pages";
 
+function publishedBook(row) {
+  const link = row.querySelector('a[href*="#zlibrary-edition-"]');
+  const href = link && new URL(link.href, window.location.href);
+  const match = href?.origin === window.location.origin && href.hash.match(/^#zlibrary-edition-(\d{1,15}\.\d+)-([a-z0-9]{1,12})$/);
+  const caption = (link || row).textContent.trim().replace(/（未提供下載識別碼）$/, "");
+  const parts = caption.split(" · ");
+  let size = "";
+  if (/^\d[\d.,]*\s*(?:[KMGT]i?B|B|bytes?)$/i.test(parts.at(-1))) size = parts.pop();
+  const format = parts.length > 1 && /^[a-z0-9]{1,12}$/i.test(parts.at(-1)) &&
+    (match ? parts.at(-1).toLowerCase() === match[2] : /^(epub|pdf|mobi|azw3|djvu|fb2|txt)$/i.test(parts.at(-1))) ? parts.pop() : "";
+  return { title: parts.shift(), details: parts.join(" · "), extension: format, size, caption,
+    href: match ? href.href : null, selection: match ? match[1] : null };
+}
+
 function decoratePages(element, helper, bot, group, openEdition) {
   if (!helper?.renderGlimmer || element.querySelector(":scope > .zlibrary-post-pager")) return;
   const paragraphs = [...element.querySelectorAll(":scope > p")];
@@ -45,7 +59,8 @@ function decoratePages(element, helper, bot, group, openEdition) {
   for (const p of [badge, ...commands.map(c => c.p)]) p?.classList.add("zlibrary-page-fallback");
   heading.classList.add("zlibrary-initial-results");
   nativeList?.classList.add("zlibrary-initial-results");
-  const initial = { page, total_pages: total, has_next: total ? page < total : commands.some(c => c.forward) };
+  const books = nativeList ? [...nativeList.querySelectorAll(":scope > li")].map(publishedBook) : [];
+  const initial = { books, page, total_pages: total, has_next: total ? page < total : commands.some(c => c.forward) };
   helper.renderGlimmer(host, BookPostPages, { initial, filters, group, openEdition });
 }
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 
 const tool = JSON.parse(
   readFileSync(new URL("../native/forum-book-tool.json", import.meta.url)),
@@ -27,6 +27,7 @@ function site(activeScript = script) {
     fields = new Map(),
     calls = [],
     replies = [],
+    edits = [],
     uploads = [];
   const state = {
     login: true,
@@ -81,12 +82,12 @@ function site(activeScript = script) {
     const post = {
       id,
       raw: flags.raw ?? ("book-library-request-v1\n" + JSON.stringify({ op, nonce, ...input })),
-      user_id: user,
+      user_id: user, username: "reader" + user,
       topic_id: topic,
-      post_number: id,
+      post_number: flags.number || id,
       topic: { archetype: flags.archetype || "private_message" },
     };
-    if (!posts.has(id)) posts.set(id, post);
+    if (!posts.has(id) || flags.replace) posts.set(id, post);
     const sandbox = {
       context: {
         user_id: user,
@@ -101,6 +102,12 @@ function site(activeScript = script) {
         setCustomField: (_t, i, k, v) => {
           if (v.length > 1024) throw new Error("Value too long (max 1024 characters)");
           return fields.set(i + ":" + k, v);
+        },
+        editPost: (i, raw, options) => {
+          assert.equal(i, id);
+          assert.equal(options.username, post.username);
+          edits.push({ id: i, raw });
+          return { success: true, post_id: i };
         },
         createPost: (p) => {
           replies.push(p);
@@ -121,17 +128,17 @@ function site(activeScript = script) {
           return { short_url: "upload://abcd." + name.split(".").at(-1) };
         },
       },
-      crypto: { base64Decode: (s) => Buffer.from(s, "base64").toString("latin1"),
+      crypto: { randomBytes, hmacSha256: (k, s) => createHmac("sha256", k).update(s).digest("hex"), base64Decode: (s) => Buffer.from(s, "base64").toString("latin1"),
         sha256: s => createHash("sha256").update(s).digest("hex") },
     };
     const outcome = activeScript.runInNewContext(sandbox);
     if (outcome === "ignored") return null;
     if (outcome === "already handled") return outcome;
     if (flags.archetype === "regular") return replies.at(-1).raw;
-    return JSON.parse(replies.at(-1).raw.split("\n")[3]).result;
+    return JSON.parse(edits.at(-1).raw.match(/<!-- book-library-workspace-v2 (.+) -->$/)[1]).result;
   }
   const search = () => run("search", { query: "試讀本", extension: "pdf", page: 1 });
-  return { run, search, state, calls, fields, replies, uploads, cfg };
+  return { run, search, state, calls, fields, replies, edits, uploads, cfg };
 }
 test("searches for a forum member in a private topic; handles filters, pagination and multiple editions", () => {
   const s = site(),
@@ -159,7 +166,7 @@ test("selects the correct edition, and the private forum attachment preserves it
   assert.equal(s.uploads[0].name, "試讀本.pdf");
   assert.deepEqual(s.uploads[0].bytes, pdf);
   assert.equal(s.calls[3].path, "/eapi/book/53/def/file");
-  assert.match(s.replies.at(-1).raw, /\[Download\]\(upload:\/\/abcd.pdf\)/);
+  assert.match(s.edits.at(-1).raw, /\[Download\]\(upload:\/\/abcd.pdf\)/);
 });
 test("refuses a selection copied to another account or conversation", () => {
   const s = site(),
@@ -210,7 +217,7 @@ test("never publishes a credential in a file URL or copies an unknown or oversiz
     s.state.link = link;
     const key = s.search().books[0].selection;
     assert.ok(s.run("download", { selection: key }).error);
-    assert.doesNotMatch(s.replies.at(-1).raw, /fixture-long-account-session-key/);
+    assert.doesNotMatch(s.edits.at(-1).raw, /fixture-long-account-session-key/);
   }
   for (const size of [undefined, 20 * 1024 * 1024]) {
     const s = site();
@@ -281,7 +288,7 @@ test("search follows the configured order and sends a session only to the host t
     assert.deepEqual(s.calls.map(c => [c.origin, c.path]), [[origins[0], loginPath], [origins[0], searchPath]]);
     assert.equal(s.calls[0].options.headers.Cookie, undefined);
     assert.match(s.calls[1].options.headers.Cookie, /remix_userid=8/);
-    assert.doesNotMatch(s.replies[0].raw, /z-lib\.gd|z-library\.website/);
+    assert.doesNotMatch(s.edits[0].raw, /z-lib\.gd|z-library\.website/);
   }
 });
 
@@ -354,7 +361,8 @@ test("search tries each host once after a DNS or TCP connect failure and pins th
       ...firstCalls.map(path => [mirror, path]), [original, loginPath], [original, searchPath],
     ]);
     assert.equal(s.calls.at(-2).options.headers.Cookie, undefined);
-    assert.equal(s.replies.length, 1);
+    assert.equal(s.edits.length, 1);
+    assert.equal(s.replies.length, 0);
     assert.equal(s.run("download", { selection }).delivery, "forum");
     assert.deepEqual(s.calls.slice(-3).map(c => [c.origin, c.path]), [
       [original, loginPath], [original, "/eapi/book/53/def/file"], [original, "/file/sample"],
@@ -377,7 +385,8 @@ test("returns a single failure after exhausting the ordered hosts without extra 
   };
   assert.equal(s.search().error, "upstream");
   assert.deepEqual(s.calls.map(c => [c.origin, c.path]), [[original, loginPath], [mirror, loginPath]]);
-  assert.equal(s.replies.length, 1);
+  assert.equal(s.edits.length, 1);
+    assert.equal(s.replies.length, 0);
 });
 
 test("the extra binding overrides both account settings without exposing or rewriting the account", () => {
@@ -418,7 +427,8 @@ test("never switches hosts for an HTTP response, TLS error, read timeout, or blo
     };
     assert.equal(s.search().error, expected);
     assert.deepEqual(s.calls.map(c => [c.origin, c.path]), [[mirror, loginPath]]);
-    assert.equal(s.replies.length, 1);
+    assert.equal(s.edits.length, 1);
+    assert.equal(s.replies.length, 0);
   }
 });
 
@@ -463,7 +473,8 @@ test("file requests stay on their selected host and a failed issuance is never r
     const paths = [loginPath, "/eapi/book/53/def/file", "/file/sample"];
     assert.deepEqual(s.calls.slice(2).map(c => [c.origin, c.path]),
       paths.slice(0, paths.indexOf(failedPath) + 1).map(path => [mirror, path]));
-    assert.equal(s.replies.length, 2);
+    assert.equal(s.edits.length, 2);
+    assert.equal(s.replies.length, 0);
   }
 });
 
@@ -475,7 +486,8 @@ test("replaying a handled post neither repeats a file request nor publishes anot
   const count = s.calls.length;
   assert.equal(s.run("download", { selection }, 2, 10, { existingPostId: 2 }), "already handled");
   assert.equal(s.calls.length, count);
-  assert.equal(s.replies.length, 2);
+  assert.equal(s.edits.length, 2);
+    assert.equal(s.replies.length, 0);
   assert.equal(s.uploads.length, 1);
 });
 
@@ -666,4 +678,20 @@ test("an empty provider page stays empty and its declared next page remains reac
   assert.match(reply,/@ZlibBot literal --ext epub --page 2/);
   assert.doesNotMatch(reply,/zlibrary-edition/);
   assert.deepEqual(s.calls.map(c=>c.path),[loginPath,searchPath]);
+});
+
+test("a reader reuses one silent workspace and an earlier edition survives a subsequent search", () => {
+  const s = site();
+  let sequence = 0;
+  function submit(op, fields) {
+    const packet = { kind: "request", nonce: nonce.slice(0,-4) + String(++sequence).padStart(4, "0"), op, ...fields };
+    const raw = "Book library workspace.\n\n<!-- book-library-workspace-v2 " + JSON.stringify(packet) + " -->";
+    return s.run(op, fields, 2, 10, { existingPostId: 1, replace: true, number: 1, raw });
+  }
+  const key = submit("search", { query: "first", page: 1 }).books[0].selection;
+  submit("search", { query: "second", page: 1 });
+  assert.equal(submit("download", { selection: key }).delivery, "forum");
+  assert.equal(submit("download", { selection: key + "x" }).error, "selection");
+  assert.equal(s.replies.length, 0);
+  assert.ok(s.edits.every(edit => edit.id === 1));
 });

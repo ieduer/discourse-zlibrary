@@ -6,7 +6,7 @@ const tool = {
     name: "Forum Book Library",
     tool_name: "forum_book_library",
     summary: "Search for editions in forum topics and prepare the edition a member selects.",
-    description: "Answers public mentions and direct replies to the book bot and handles selection, download and EPUB requests in the dedicated group inbox.",
+    description: "Answers public mentions and direct replies to the book bot and updates a reader-owned archived workspace for search, download and EPUB without sending private replies.",
     parameters: [],
     secret_contracts: [{ alias: "book_account" }],
     script,

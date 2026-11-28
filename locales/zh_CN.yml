@@ -28,6 +28,7 @@ zh_CN:
     search_error: 搜索未完成，请再试一次。
     download_error: 未能保存文件，请确认论坛登录状态后再试。
     errors:
+      edition_changed: "书库已无法唯一辨认这个版本，请重新搜索并选版。"
       configuration: 论坛尚未配置书库账号，请联系管理员。
       account: 上游未接受论坛的书库账号，请联系管理员。
       verification: 书库服务要求额外验证或返回了登录页，请联系管理员。
@@ -42,8 +43,10 @@ zh_CN:
       query: 搜索词应为 1 至 200 个字符，请确认格式、页码及站点编号均有效。
       membership: 请登录论坛后再试。
       file_host: 书库服务尚未配置这个文件域名。
-      pending: 论坛尚未回复，请在个人消息中查看此次请求。
+      pending: "书库尚未完成这次操作，请稍后重试。"
       attachment: 论坛无法为这种文件类型或大小建立附件。
+    workspace_title: "我的书库搜索工作区"
+    workspace_note: "搜索、翻页和选版结果会显示在原来的书单。"
     pm_title: 书库请求
     prepare: 准备下载
     embed: 在本帖嵌入 EPUB

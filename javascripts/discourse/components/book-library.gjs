@@ -114,7 +114,19 @@ export default class BookLibrary extends Component {
 
   async prepareFile(op) {
       if (this.readyFile) return this.readyFile;
-      const file = await this.request(op, { selection: this.selected.selection, source_topic_id: this.args.model.sourceTopicId });
+      let selection = this.selected.selection;
+      const replay = this.selected.replay;
+      if (replay) {
+        const page = await this.request("search", { ...replay.filters, page: replay.page });
+        const matches = (page.books || []).filter(book => {
+          const caption = [book.title || "未提供書名", book.author, book.translator && "譯者 " + book.translator, book.publisher,
+            book.year, book.language, book.extension?.toUpperCase(), book.size].filter(Boolean).join(" · ").replace(/@/g, "＠");
+          return book.selection && caption === replay.caption;
+        });
+        if (matches.length !== 1) throw new Error(t("errors.edition_changed"));
+        selection = matches[0].selection;
+      }
+      const file = await this.request(op, { selection, source_topic_id: this.args.model.sourceTopicId });
       const local = file.delivery === "forum" && /^\/uploads\/short-url\/[a-zA-Z0-9]+\.[a-zA-Z0-9]+$/.test(file.download_url);
       const url = new URL(local ? getURL(file.download_url) : file.download_url, window.location.origin);
       if ((!local && (file.delivery !== "provider" || url.protocol !== "https:")) || url.username || url.password || !file.filename) {

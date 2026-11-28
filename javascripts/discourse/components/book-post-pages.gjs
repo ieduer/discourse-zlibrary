@@ -7,13 +7,22 @@ import { extractError } from "discourse/lib/ajax-error";
 import { eq, not, or } from "discourse/truth-helpers";
 import BookConversation, { t } from "../lib/book-conversation";
 
-function caption(book) {
-  return [
-    book.title || t("untitled"), book.author,
-    book.translator && t("translator", { name: book.translator }),
-    book.publisher, book.year, book.language, book.extension?.toUpperCase(), book.size,
-  ].filter(Boolean).join(" · ");
+function details(book) {
+  return book.details || [book.author, book.translator && t("translator", { name: book.translator }),
+    book.publisher, book.year, book.language].filter(Boolean).join(" · ");
 }
+
+const Edition = <template>
+  <span class="zlibrary__edition-text">
+    <strong>{{if @book.title @book.title (t "untitled")}}</strong>
+    {{#if (details @book)}}<span class="zlibrary__edition-details">{{details @book}}</span>{{/if}}
+  </span>
+  <span class="zlibrary__edition-file">
+    {{#if @book.extension}}<span class="zlibrary__edition-format">{{@book.extension}}</span>{{/if}}
+    {{#if @book.size}}<span>{{@book.size}}</span>{{/if}}
+    {{#unless @book.selection}}<span>{{t "no_download"}}</span>{{/unless}}
+  </span>
+</template>;
 
 export default class BookPostPages extends Component {
   @tracked result = null;
@@ -50,31 +59,35 @@ export default class BookPostPages extends Component {
   }
 
   @action
-  choose(book) {
-    this.args.data.openEdition(book, this.conversation);
+  choose(book, event) {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const replay = book.href ? { filters: this.args.data.filters, page: this.current.page, caption: book.caption } : null;
+    this.args.data.openEdition({ ...book, extension: book.extension?.toLowerCase(), replay }, this.conversation);
   }
 
   <template>
-    {{#if this.result}}
-      <div class="zlibrary__inline-results">
-        <p>{{t "results" query=@data.filters.query}}</p>
-        {{#if this.result.books.length}}
-          <ol>
-            {{#each this.result.books key="@index" as |book|}}
-              <li>
-                {{#if book.selection}}
-                  <button type="button" class="btn-link zlibrary__edition" {{on "click" (fn this.choose book)}}>{{caption book}}</button>
-                {{else}}
-                  {{caption book}} ({{t "no_download"}})
-                {{/if}}
-              </li>
-            {{/each}}
-          </ol>
-        {{else}}
-          <p>{{t "no_results"}}</p>
-        {{/if}}
-      </div>
-    {{/if}}
+    <section class="zlibrary__catalog {{if this.result 'zlibrary__inline-results'}}">
+      <h3>{{@data.filters.query}}</h3>
+      {{#if this.current.books.length}}
+        <ol class="zlibrary__shelf">
+          {{#each this.current.books key="@index" as |book|}}
+            <li>
+              {{#if book.href}}
+                <a class="zlibrary__edition" href={{book.href}} {{on "click" (fn this.choose book)}}><Edition @book={{book}} /></a>
+              {{else if book.selection}}
+                <button type="button" class="zlibrary__edition" {{on "click" (fn this.choose book)}}><Edition @book={{book}} /></button>
+              {{else}}
+                <div class="zlibrary__edition zlibrary__edition--unavailable"><Edition @book={{book}} /></div>
+              {{/if}}
+            </li>
+          {{/each}}
+        </ol>
+      {{else}}
+        <p>{{t "no_results"}}</p>
+      {{/if}}
+    </section>
     <nav class="zlibrary__pages zlibrary__post-nav" aria-label={{t "pages"}}>
       <button type="button" class="btn btn-default zlibrary-previous" disabled={{or this.loading (eq this.current.page 1)}} {{on "click" (fn this.turn -1)}}>{{t "previous"}}</button>
       <span role="status" aria-atomic="true">

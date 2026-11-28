@@ -22,6 +22,11 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
 
   def process_book_request(automation)
     worker = Jobs::DiscourseAutomation::Trigger
+    if automation.name == "Book library"
+      try_until_success do
+        expect(Post.where("raw LIKE ?", '%<!-- book-library-workspace-v2 {"kind":"request"%')).to exist
+      end
+    end
     try_until_success do
       automation_ids = worker.jobs.map { |job| job.fetch("args").first.fetch("automation_id") }
       expect(automation_ids).to include(automation.id)
@@ -48,7 +53,6 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     tool.replace_secret_bindings!([{ alias: "book_account", ai_secret_id: secret.id }, { alias: "book_origins", ai_secret_id: origins.id }])
     auto = DiscourseAutomation::Automation.create!(name: "Book library", script: "ai_tool_action", trigger: "post_created_edited", last_updated_by_id: Discourse.system_user.id, enabled: false)
     auto.upsert_field!("tool", "choices", { value: tool.id }, target: "script")
-    auto.upsert_field!("action_type", "choices", { value: "created" }, target: "trigger")
     auto.upsert_field!("restricted_archetype", "choices", { value: "private_message" }, target: "trigger")
     auto.upsert_field!("restricted_inbox_groups", "groups", { value: [inbox.id] }, target: "trigger")
     auto.update!(enabled: true)
@@ -135,10 +139,14 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
       expect(File.binread(download.path)).to eq(bytes)
     end
     expect(paths.grep(%r{/file$})).to eq(["/eapi/book/53/def/file"])
-    request_post = Post.find_by!("raw LIKE ?", "book-library-request-v1%")
+    request_post = Post.find_by!("raw LIKE ?", "%<!-- book-library-workspace-v2 %")
     expect(request_post.topic).to be_private_message
     expect(request_post.topic.allowed_groups).to include(inbox)
-    expect(request_post.topic.posts.pluck(:raw).join).not_to include("private-fixture-session", "fixture-only")
+    expect(request_post.topic.posts.count).to eq(1)
+    expect(request_post.topic.posts.pluck(:raw).join).not_to include("private-fixture-session", "fixture-only", "download_url", "試讀本")
+    expect(UserArchivedMessage.exists?(user_id: member.id, topic_id: request_post.topic_id)).to be(true)
+    expect(TopicUser.find_by!(user_id: member.id, topic_id: request_post.topic_id).notification_level).to eq(0)
+    expect(Notification.where(user_id: member.id, topic_id: request_post.topic_id)).not_to exist
 
     bot = Fabricate(:user, username: "ZlibBot", trust_level: 2, refresh_auto_groups: true)
     topic = Fabricate(:topic, user: member, category: Fabricate(:category))
@@ -163,6 +171,7 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     expect(page).to have_css(".zlibrary-embed")
     expect(paths).not_to include("/eapi/book/51/abc/file")
     find(".zlibrary-embed").click
+    process_book_request(auto) # Resolve this published edition using the current reader.
     process_book_request(auto)
     find("#reply-control button.create").click
     expect(page).to have_css(".topic-post .cooked a.attachment", text: /試讀本\.epub/)
@@ -204,9 +213,9 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     find(".zlibrary-prepare").click
     process_book_request(auto)
     expect(find("a.zlibrary-save")[:href]).to eq("https://files.example/selected.pdf")
-    inline_search = Post.where("raw LIKE ?", 'book-library-request-v1%').order(:id).to_a.reverse.find { |p| p.raw.include?('"query":"盐"') }
-    expect(inline_search.topic).to be_private_message
-    expect(inline_search.topic.posts.where("raw LIKE ?", '%"op":"download"%').count).to eq(1)
+    expect(request_post.topic.reload.posts.count).to eq(1)
+    expect(Topic.where(archetype: "private_message", user_id: member.id).where("title LIKE ?", "%book search workspace%").count).to eq(1)
+    expect(Notification.where(user_id: member.id, topic_id: request_post.topic_id)).not_to exist
     page.driver.with_playwright_page { |browser| browser.keyboard.press("Escape") }
     find("#{current} .zlibrary-previous").click
     process_book_request(auto)

@@ -28,6 +28,7 @@ zh_TW:
     search_error: 搜尋未完成，請再試一次。
     download_error: 檔案未能儲存，請確認論壇登入狀態後再試。
     errors:
+      edition_changed: "書庫已無法唯一辨認這個版本，請重新搜尋並選版。"
       configuration: 論壇尚未設定書庫帳號，請聯絡管理員。
       account: 上游未接受論壇的書庫帳號，請聯絡管理員。
       verification: 書庫服務要求額外驗證或傳回登入頁，請聯絡管理員。
@@ -42,8 +43,10 @@ zh_TW:
       query: 搜尋詞須為 1 至 200 個字元，請確認格式、頁碼及站點編號均有效。
       membership: 請登入論壇後再試。
       file_host: 書庫服務尚未設定這個檔案網域。
-      pending: 論壇尚未回覆，請在個人訊息中查看此次請求。
+      pending: "書庫尚未完成這次操作，請稍後重試。"
       attachment: 論壇無法為這個檔案類型或大小建立附件。
+    workspace_title: "我的書庫搜尋工作區"
+    workspace_note: "搜尋、翻頁及選版結果會顯示在原來的書單。"
     pm_title: 書庫請求
     prepare: 準備下載
     embed: 在本帖嵌入 EPUB

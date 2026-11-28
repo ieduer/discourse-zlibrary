@@ -28,6 +28,7 @@ en:
     search_error: The search could not be completed. Please try again.
     download_error: The file could not be saved. Check your forum session and try again.
     errors:
+      edition_changed: "The catalog no longer identifies this edition uniquely. Please search again and choose the edition you want."
       configuration: The forum book account has not been configured. Contact a forum administrator.
       account: The provider rejected the forum’s book account. Contact a forum administrator.
       verification: The provider requires verification or returned a sign-in page. Contact a forum administrator.
@@ -42,8 +43,10 @@ en:
       query: Enter a search term of up to 200 characters and check the format, page and source number.
       membership: Sign in to the forum and try again.
       file_host: The file host is not configured for this book service.
-      pending: The forum did not reply in time. Check the private conversation for its response.
+      pending: "The book service has not replied yet. Try the search again."
       attachment: The forum could not create an attachment for this file type or size.
+    workspace_title: "My book search workspace"
+    workspace_note: "Your book searches and edition choices appear in the original book list."
     pm_title: Book library request
     prepare: Prepare download
     embed: Embed EPUB in a reply

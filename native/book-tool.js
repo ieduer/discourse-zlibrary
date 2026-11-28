@@ -33,13 +33,13 @@ function invoke() {
 
 function processBookPost(post) {
   const requestMark = "book-library-request-v1";
-  const resultMark = "book-library-result-v1";
+  const workspaceMark = "book-library-workspace-v2";
   const cacheKey = "book_library_editions_v1";
   const receiptKey = "book_library_reply_v1";
   if (!post || !(post.user_id > 0) || !post.topic || typeof post.raw !== "string") return "ignored";
   const inTopic = post.topic.archetype === "regular";
   let bot = "ZlibBot";
-  let request;
+  let request, workspace = false;
   if (inTopic) {
     if (post.hidden || post.deleted_at || post.user_deleted || (post.post_type && post.post_type !== 1)) return "ignored";
     const mention = post.raw.trim().match(/^@([a-z0-9_-]+)(?=$|[\s:：,，])[\s:：,，]*([^\n]{0,260})\s*$/i);
@@ -58,14 +58,17 @@ function processBookPost(post) {
     }
     if (!request) return "ignored";
   } else {
-    if (post.topic.archetype !== "private_message" || !post.raw.startsWith(requestMark + "\n"))
-      return "ignored";
-    try { request = JSON.parse(post.raw.slice(requestMark.length + 1)); }
+    if (post.topic.archetype !== "private_message") return "ignored";
+    const payload = post.raw.match(/\n\n<!-- book-library-workspace-v2 (.+) -->$/);
+    workspace = !!payload && post.post_number === 1;
+    if (!workspace && !post.raw.startsWith(requestMark + "\n")) return "ignored";
+    try { request = JSON.parse(workspace ? payload[1] : post.raw.slice(requestMark.length + 1)); }
     catch (_) { return "ignored"; }
-    if (!request || !/^[a-f0-9-]{36}$/.test(request.nonce) ||
+    if (!request || (workspace && request.kind !== "request") || !/^[a-f0-9-]{36}$/.test(request.nonce) ||
         !["search", "download", "embed"].includes(request.op)) return "ignored";
   }
-  if (discourse.getCustomField("post", post.id, receiptKey)) return "already handled";
+  const prior = discourse.getCustomField("post", post.id, receiptKey);
+  if (workspace ? prior === request.nonce : !!prior) return "already handled";
 
   function fail(code) {
     throw new Error(code);
@@ -249,6 +252,29 @@ function processBookPost(post) {
     });
     discourse.setCustomField("post", post.id, cacheKey, JSON.stringify({ ...meta, generation, count: compact.length }));
   }
+  // Each independent page keeps its edition choices even when this document is reused.
+  function workspaceKey(create) {
+    const field = "book_workspace_key_v2";
+    let key = discourse.getCustomField("post", post.id, field);
+    if (!key && create) {
+      key = Array.from(crypto.randomBytes(32), byte => byte.toString(16).padStart(2, "0")).join("");
+      discourse.setCustomField("post", post.id, field, key);
+    }
+    if (typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key)) fail("selection");
+    return key;
+  }
+  function signedSelection(row, origin, key, expiry) {
+    const { id, hash, title, extension, bytes } = row;
+    const body = encodeURIComponent(JSON.stringify({ owner: post.user_id, origin, expiry, id, hash, title, extension, bytes }));
+    return "w2." + crypto.hmacSha256(key, body) + "." + body;
+  }
+  function readTicket(value) {
+    const m = typeof value === "string" && value.length <= 8000 && value.match(/^w2\.([a-f0-9]{64})\.(.+)$/);
+    if (!workspace || !m || crypto.hmacSha256(workspaceKey(false), m[2]) !== m[1]) fail("selection");
+    const ticket = JSON.parse(decodeURIComponent(m[2]));
+    if (ticket.owner !== post.user_id || !Number.isFinite(ticket.expiry) || ticket.expiry <= Date.now()) fail("selection");
+    return { book: ticket, origin: ticket.origin };
+  }
   function search() {
     if (!inTopic && typeof request.query === "string") {
       const flags = parseBookSearchFlags(request.query);
@@ -294,7 +320,8 @@ function processBookPost(post) {
     if (!origin) fail("upstream");
     if (!Array.isArray(data.books)) fail("upstream");
     const rows = data.books.map(row => record(row, origin));
-    try { saveSelections(origin, rows); }
+    let key;
+    try { if (workspace) key = workspaceKey(true); else saveSelections(origin, rows); }
     catch (_) { fail("selection"); }
     const current = Number(data.pagination && data.pagination.current) || page;
     const total = Number(data.pagination && data.pagination.total_pages) || null;
@@ -306,7 +333,7 @@ function processBookPost(post) {
         delete copy.id;
         delete copy.hash;
         copy.row_key = post.id + "." + i;
-        copy.selection = row.id && row.hash ? copy.row_key : null;
+        copy.selection = row.id && row.hash ? (workspace ? signedSelection(row, origin, key, Date.now() + 1200000) : copy.row_key) : null;
         return copy;
       }),
       page: current,
@@ -314,7 +341,7 @@ function processBookPost(post) {
       has_next: total ? current < total : data.books.length >= 10,
     };
   }
-  function download() {
+  function storedSelection() {
     const m =
       typeof request.selection === "string" && request.selection.match(/^(\d{1,15})\.(0|[1-9]\d{0,6})$/);
     if (!m) fail("selection");
@@ -339,9 +366,14 @@ function processBookPost(post) {
       if (value && crypto.sha256(value) === data.slots[index]) book = JSON.parse(value);
     }
     if (!book || !book.id || !book.hash) fail("selection");
+    return { book, origin: data.origin };
+  }
+  function download() {
+    const { book, origin: catalogOrigin } = typeof request.selection === "string" && request.selection.startsWith("w2.")
+      ? readTicket(request.selection) : storedSelection();
     if (request.op === "embed" && book.extension !== "epub") fail("selection");
     const cfg = credentials();
-    const sourceOrigin = data.origin === undefined && cfg.legacy ? cfg.origins[0] : data.origin;
+    const sourceOrigin = catalogOrigin === undefined && cfg.legacy ? cfg.origins[0] : catalogOrigin;
     if (!cfg.origins.includes(sourceOrigin)) fail("selection");
     const session = login(cfg, sourceOrigin);
     const filePath = cfg.filePath.replace("{id}", book.id).replace("{hash}", book.hash);
@@ -495,27 +527,29 @@ function processBookPost(post) {
     if (result.has_next) lines.push("", "下一頁可回覆：" + pageCommand(result.page + 1));
     return lines.join("\n");
   }
-  let raw;
-  if (inTopic) {
-    raw = topicReply();
-  } else {
-    const payload = { marker: resultMark, nonce: request.nonce, result };
-    raw = resultMark + "\n\n```json\n" +
-      JSON.stringify(payload).replace(/</g, "\\u003c").replace(/\x60/g, "\\u0060") + "\n```";
-    if (result.short_url) raw += "\n\n[Download](" + result.short_url + ")";
+  if (!inTopic) {
+    // A result updates only the requester's own working document. Never send a reply.
+    const current = discourse.getPost(post.id);
+    if (!current || current.raw !== post.raw || current.user_id !== post.user_id ||
+        current.topic?.archetype !== "private_message") return "stale";
+    const packet = JSON.stringify({ kind: "result", nonce: request.nonce, result })
+      .replace(/[<>&-]/g, ch => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"));
+    let note = "書庫操作結果已傳回原來的搜尋畫面。";
+    if (result.short_url) note += "\n\n[Download](" + result.short_url + ")";
+    const changed = discourse.editPost(post.id, note + "\n\n<!-- " + workspaceMark + " " + packet + " -->", { username: post.username });
+    if (!changed || changed.error || changed.success === false) throw new Error("Unable to update the book workspace");
+    discourse.setCustomField("post", post.id, receiptKey, workspace ? request.nonce : "done");
+    return "handled";
   }
   const reply = discourse.createPost({
     topic_id: post.topic_id,
     reply_to_post_number: post.post_number,
-    ...(inTopic ? { username: bot } : {}),
-    raw,
+    username: bot, raw: topicReply(),
   });
   if (!reply || reply.error) throw new Error("Unable to save the book response");
   discourse.setCustomField("post", post.id, receiptKey, "done");
-  if (inTopic) {
-    const search = request.op === "search" && request.query && !request.invalid && request.query.length <= 200 ?
-      { query: request.query, page: request.page, site: request.site, extension: request.extension } : request.previous;
-    bookReplyIndex(post.topic_id, reply, post, search);
-  }
+  const indexedSearch = request.op === "search" && request.query && !request.invalid && request.query.length <= 200 ?
+    { query: request.query, page: request.page, site: request.site, extension: request.extension } : request.previous;
+  bookReplyIndex(post.topic_id, reply, post, indexedSearch);
   return "handled";
 }

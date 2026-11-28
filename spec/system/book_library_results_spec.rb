@@ -17,7 +17,8 @@ RSpec.describe "Forum book search result list", type: :system do
 
     # Exercise the real modal and its PM protocol. The server-side search has its own integration coverage.
     requests = []
-    replies = {}
+    workspace = { id: 8765, topic_id: 765432, post_number: 1, user_id: member.id }
+    creations = 0
     records = (0..10).map do |i|
       { title: "Record #{i}", publisher: "Publisher #{i}", selection: nil }
     end
@@ -25,23 +26,38 @@ RSpec.describe "Forum book search result list", type: :system do
     [1, 10].each { |i| records[i].merge!(title: "Repeated title", selection: "77.#{i}", extension: "pdf") }
     pages = { 1 => records, 2 => [], 3 => [{ title: "Last record", selection: "80.0" }] }
     page.driver.with_playwright_page do |browser|
-      browser.route("**/posts.json", lambda do |route, _request|
-        payload = JSON.parse(route.request.post_data_json.fetch("raw").split("\n", 2).last)
-        number = requests.length + 1
-        requests << payload
-        result = if payload.fetch("op") == "download"
-          { delivery: "provider", download_url: "https://books.example/selected.pdf", filename: "selected.pdf" }
+      json = ->(route, value) { route.fulfill(status: 200, contentType: "application/json", body: JSON.generate(value)) }
+      handle = lambda do |raw|
+        packet = JSON.parse(raw.match(/<!-- book-library-workspace-v2 (.+) -->$/)[1])
+        if packet["kind"] == "request"
+          requests << packet
+          result = if packet.fetch("op") == "download"
+            { delivery: "provider", download_url: "https://books.example/selected.pdf", filename: "selected.pdf" }
+          else
+            index = packet.fetch("page")
+            { query: packet.fetch("query"), books: pages.fetch(index), page: index, total_pages: 3, has_next: index < 3 }
+          end
+          response = { kind: "result", nonce: packet.fetch("nonce"), result: result }
+          workspace[:raw] = "Workspace.\n\n<!-- book-library-workspace-v2 #{JSON.generate(response)} -->"
         else
-          index = payload.fetch("page")
-          { query: payload.fetch("query"), books: pages.fetch(index), page: index, total_pages: 3, has_next: index < 3 }
+          workspace[:raw] = raw
         end
-        packet = { marker: "book-library-result-v1", nonce: payload.fetch("nonce"), result: result }
-        replies[number] = { user_id: -1, reply_to_post_number: number, cooked: "<pre><code>#{CGI.escapeHTML(JSON.generate(packet))}</code></pre>" }
-        route.fulfill(status: 200, contentType: "application/json", body: JSON.generate(topic_id: 765432, post_number: number))
+      end
+      browser.route("**/groups/zlibrary/members.json?**", ->(route, _) { json.call(route, { members: [], owners: [] }) })
+      browser.route("**/t/765432.json", ->(route, _) { json.call(route, { archetype: "private_message", details: { allowed_users: [{ id: member.id }], allowed_groups: [{ name: "zlibrary" }] } }) })
+      browser.route("**/t/765432/notifications", ->(route, _) { json.call(route, { success: true }) })
+      browser.route("**/t/765432/archive-message", ->(route, _) { json.call(route, { success: true }) })
+      browser.route("**/posts.json", lambda do |route, _|
+        creations += 1
+        handle.call(route.request.post_data_json.fetch("raw"))
+        json.call(route, workspace)
       end)
-      browser.route("**/t/765432/posts.json?**", lambda do |route, _request|
-        number = Rack::Utils.parse_query(URI(route.request.url).query).fetch("post_number").to_i
-        route.fulfill(status: 200, contentType: "application/json", body: JSON.generate(post_stream: { posts: [replies.fetch(number)] }))
+      browser.route("**/posts/8765.json*", lambda do |route, _|
+        if route.request.method == "PUT"
+          payload = route.request.post_data_json
+          handle.call(payload["post[raw]"] || payload.dig("post", "raw"))
+        end
+        json.call(route, workspace)
       end)
 
       within("form.zlibrary__search") do
@@ -67,6 +83,7 @@ RSpec.describe "Forum book search result list", type: :system do
       expect(page).to have_css(".zlibrary__pages button:last-of-type[disabled]")
       find(".zlibrary__pages button:first-of-type").click
       expect(page).to have_css(".zlibrary__results p")
+      expect(creations).to eq(1)
       expect(requests.select { |r| r.fetch("op") == "search" }.map { |r| r.fetch("page") }).to eq([1, 2, 3, 2])
     end
   end
