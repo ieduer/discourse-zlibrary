@@ -166,6 +166,8 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     process_book_request(public_auto)
     expect(paths.count("/eapi/book/search")).to eq(before + 1)
     expect(topic.posts.find_by!(user_id: bot.id, reply_to_post_number: direct.post_number).raw).to include("試讀本", "EPUB")
+    reader = Fabricate(:user, trust_level: 2, refresh_auto_groups: true)
+    sign_in(reader)
     visit(topic.relative_url)
     find("#post_#{answer.post_number} a[href*='#zlibrary-edition-'][href$='-epub']").click
     expect(page).to have_css(".zlibrary-embed")
@@ -176,6 +178,9 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     find("#reply-control button.create").click
     expect(page).to have_css(".topic-post .cooked a.attachment", text: /試讀本\.epub/)
     expect(Upload.find_by!(sha1: Digest::SHA1.hexdigest(epub)).extension).to eq("epub")
+    reader_workspace = Post.where(user_id: reader.id).find_by!("raw LIKE ?", "%<!-- book-library-workspace-v2 %")
+    expect(reader_workspace.topic.allowed_users.pluck(:id)).to contain_exactly(reader.id)
+    expect(UserArchivedMessage.exists?(user_id: reader.id, topic_id: reader_workspace.topic_id)).to be(true)
 
     story_topic = Fabricate(:topic, user: member, category: topic.category)
     story_topic.update_column(:title, "盐")
@@ -202,20 +207,23 @@ RSpec.describe "Forum Book Library with the forum's native automation", type: :s
     process_book_request(auto)
     expect(page).to have_css("#{current} .zlibrary__inline-results li", count: 2)
     expect(page).to have_css("#{current} .zlibrary-next[disabled]")
-    expect(page).to have_css("#{current} .zlibrary__edition", count: 1)
+    expect(page).to have_css("#{current} button.zlibrary__edition", count: 1)
+    expect(page).to have_css("#{current} .zlibrary__edition--unavailable", count: 1)
     expect(page).to have_css("#{original} .zlibrary-previous[disabled]")
     expect(page).to have_no_css("#{original} .zlibrary__inline-results")
     expect(paths.grep(%r{/file$})).to eq(before_downloads)
     expect(story_topic.posts.count).to eq(count)
     expect(URI(page.current_url).path).to start_with(story_topic.relative_url)
 
-    find("#{current} .zlibrary__edition", text: "第二頁的版本").click
+    find("#{current} button.zlibrary__edition", text: "第二頁的版本").click
     find(".zlibrary-prepare").click
     process_book_request(auto)
     expect(find("a.zlibrary-save")[:href]).to eq("https://files.example/selected.pdf")
     expect(request_post.topic.reload.posts.count).to eq(1)
-    expect(Topic.where(archetype: "private_message", user_id: member.id).where("title LIKE ?", "%book search workspace%").count).to eq(1)
-    expect(Notification.where(user_id: member.id, topic_id: request_post.topic_id)).not_to exist
+    expect(reader_workspace.topic.reload.posts.count).to eq(1)
+    workspace_topics = Topic.where(archetype: "private_message", user_id: [member.id, reader.id]).where("title LIKE ?", "%book search workspace%")
+    expect(workspace_topics.pluck(:id)).to contain_exactly(request_post.topic_id, reader_workspace.topic_id)
+    expect(Notification.where(topic_id: workspace_topics.select(:id))).not_to exist
     page.driver.with_playwright_page { |browser| browser.keyboard.press("Escape") }
     find("#{current} .zlibrary-previous").click
     process_book_request(auto)
